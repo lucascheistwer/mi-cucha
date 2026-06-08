@@ -1,0 +1,23 @@
+src/components/expenses/StatsScreen.tsx
+  s_22ce2a528c15df::t_c64dcfcab54938 320-321,324,331,336,338,340,367,388,392,402,406,418,438,440,457,462,466,468,476-477,518
+  s_22ce2a528c15df::t_9933b163769fba 143-145,149,152-154,158-159,162,166
+  s_22ce2a528c15df::t_0eb82c86563300 549,572,626,631,661,689,691
+  s_22ce2a528c15df::t_3fd35cb2c6b97f 264-265,283
+  s_22ce2a528c15df::t_a457cd3cfdc7dd 205-206,222,239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "062e0fe0e892d986f0884eeb92bed2b3884ba455",
+  "prompts": {},
+  "sessions": {
+    "s_22ce2a528c15df": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "168c3eaf-68ea-4569-b4fd-2980a85235aa",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
