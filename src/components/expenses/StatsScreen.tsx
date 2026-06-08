@@ -140,28 +140,30 @@ export function StatsScreen() {
   const spendingRows = useMemo(() => state.payload?.summary.spendingByUser ?? [], [state.payload]);
   const payments = useMemo(() => state.payload?.payments ?? [], [state.payload]);
   const currentMonthIndex = useMemo(() => {
-    if (!state.payload) {
+    const payload = state.payload;
+
+    if (!payload) {
       return -1;
     }
 
-    return state.payload.availableMonths.findIndex(
-      (month) => month.monthKey === state.payload.currentMonth
-    );
+    return payload.availableMonths.findIndex((month) => month.monthKey === payload.currentMonth);
   }, [state.payload]);
   const visibleMonths = useMemo(() => {
-    if (!state.payload) {
+    const payload = state.payload;
+
+    if (!payload) {
       return [];
     }
 
-    if (state.payload.availableMonths.length <= MAX_VISIBLE_MONTHS) {
-      return state.payload.availableMonths;
+    if (payload.availableMonths.length <= MAX_VISIBLE_MONTHS) {
+      return payload.availableMonths;
     }
 
-    const maxStartIndex = state.payload.availableMonths.length - MAX_VISIBLE_MONTHS;
+    const maxStartIndex = payload.availableMonths.length - MAX_VISIBLE_MONTHS;
     const safeMonthIndex = currentMonthIndex < 0 ? 0 : currentMonthIndex;
     const startIndex = Math.min(Math.max(safeMonthIndex - 2, 0), maxStartIndex);
 
-    return state.payload.availableMonths.slice(startIndex, startIndex + MAX_VISIBLE_MONTHS);
+    return payload.availableMonths.slice(startIndex, startIndex + MAX_VISIBLE_MONTHS);
   }, [currentMonthIndex, state.payload]);
 
   function openFinalizeDialog(message: string, settlement: ActiveDebtSettlement | null) {
@@ -200,6 +202,8 @@ export function StatsScreen() {
       return;
     }
 
+    const payload = state.payload;
+
     setFinalizeError("");
     setState((currentState) => ({
       ...currentState,
@@ -215,7 +219,7 @@ export function StatsScreen() {
         },
         body: JSON.stringify({
           force,
-          monthKey: state.payload.currentMonth,
+          monthKey: payload.currentMonth,
         }),
       });
       const data = await parseJson<{
@@ -232,7 +236,7 @@ export function StatsScreen() {
           }));
           openFinalizeDialog(
             data?.error ?? "Todavía queda deuda pendiente en este mes.",
-            data?.outstandingDebt ?? state.payload.summary.activeDebt.settlement
+            data?.outstandingDebt ?? payload.summary.activeDebt.settlement
           );
           return;
         }
@@ -257,6 +261,8 @@ export function StatsScreen() {
       return;
     }
 
+    const payload = state.payload;
+
     setPaymentError("");
     setPaymentFeedback("");
     setState((currentState) => ({
@@ -274,7 +280,7 @@ export function StatsScreen() {
         body: JSON.stringify({
           ...paymentForm,
           monto: Number(paymentForm.monto),
-          mesLiquidacion: state.payload.currentMonth,
+          mesLiquidacion: payload.currentMonth,
         }),
       });
       const data = await parseJson<{ error?: string }>(response);
@@ -311,26 +317,27 @@ export function StatsScreen() {
     );
   }
 
-  const viewingPastMonth = !state.payload.monthState.isCurrent;
+  const payload = state.payload;
+  const viewingPastMonth = !payload.monthState.isCurrent;
   const canMoveToNewerMonth = currentMonthIndex > 0;
   const canMoveToOlderMonth =
-    currentMonthIndex >= 0 && currentMonthIndex < state.payload.availableMonths.length - 1;
+    currentMonthIndex >= 0 && currentMonthIndex < payload.availableMonths.length - 1;
 
   return (
     <div className="space-y-4">
       <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
         <div className="space-y-4">
           <h1 className="text-3xl font-semibold tracking-tight text-stone-950">
-            {formatSummaryTitle(state.payload.currentMonth)}
+            {formatSummaryTitle(payload.currentMonth)}
           </h1>
 
           <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
             <span className="rounded-full bg-teal-50 px-3 py-2 text-teal-800">
-              mes activo {formatMonthLabel(state.payload.activeMonth)}
+              mes activo {formatMonthLabel(payload.activeMonth)}
             </span>
-            {state.payload.monthState.isFinalized ? (
+            {payload.monthState.isFinalized ? (
               <span className="rounded-full bg-stone-100 px-3 py-2 text-stone-700">
-                cerrado {state.payload.monthState.closedAt ? formatExpenseDate(state.payload.monthState.closedAt) : ""}
+                cerrado {payload.monthState.closedAt ? formatExpenseDate(payload.monthState.closedAt) : ""}
               </span>
             ) : (
               <span className="rounded-full bg-amber-50 px-3 py-2 text-amber-800">
@@ -357,7 +364,7 @@ export function StatsScreen() {
             >
               Volver
             </Link>
-            {state.payload.monthState.canFinalize ? (
+            {payload.monthState.canFinalize ? (
               <button
                 type="button"
                 onClick={requestFinalizeConfirmation}
@@ -378,11 +385,11 @@ export function StatsScreen() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (!canMoveToNewerMonth || !state.payload) {
+                    if (!canMoveToNewerMonth) {
                       return;
                     }
 
-                    setSelectedMonth(state.payload.availableMonths[currentMonthIndex - 1].monthKey);
+                    setSelectedMonth(payload.availableMonths[currentMonthIndex - 1].monthKey);
                   }}
                   disabled={!canMoveToNewerMonth}
                   className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
@@ -392,11 +399,11 @@ export function StatsScreen() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (!canMoveToOlderMonth || !state.payload) {
+                    if (!canMoveToOlderMonth) {
                       return;
                     }
 
-                    setSelectedMonth(state.payload.availableMonths[currentMonthIndex + 1].monthKey);
+                    setSelectedMonth(payload.availableMonths[currentMonthIndex + 1].monthKey);
                   }}
                   disabled={!canMoveToOlderMonth}
                   className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
@@ -408,7 +415,7 @@ export function StatsScreen() {
 
             <div className="mt-3 flex flex-wrap gap-2">
               {visibleMonths.map((month) => {
-                const isSelected = month.monthKey === state.payload.currentMonth;
+                const isSelected = month.monthKey === payload.currentMonth;
 
                 return (
                   <button
@@ -428,9 +435,9 @@ export function StatsScreen() {
               })}
             </div>
 
-            {state.payload.availableMonths.length > MAX_VISIBLE_MONTHS ? (
+            {payload.availableMonths.length > MAX_VISIBLE_MONTHS ? (
               <p className="mt-3 text-xs text-stone-500">
-                Mostrando {visibleMonths.length} de {state.payload.availableMonths.length} meses.
+                Mostrando {visibleMonths.length} de {payload.availableMonths.length} meses.
               </p>
             ) : null}
           </div>
@@ -447,18 +454,18 @@ export function StatsScreen() {
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr),auto]">
           <div className="space-y-3">
             <strong className="block text-4xl font-semibold">
-              {formatCurrency(state.payload.summary.gastoTotal)}
+              {formatCurrency(payload.summary.gastoTotal)}
             </strong>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-[1.2rem] bg-white/8 px-4 py-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-stone-400">gastos</p>
-                <p className="mt-1 text-lg font-semibold text-white">{state.payload.expenses.length}</p>
+                <p className="mt-1 text-lg font-semibold text-white">{payload.expenses.length}</p>
               </div>
               <div className="rounded-[1.2rem] bg-white/8 px-4 py-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-stone-400">pagos</p>
-                <p className="mt-1 text-lg font-semibold text-white">{state.payload.summary.paymentCount}</p>
+                <p className="mt-1 text-lg font-semibold text-white">{payload.summary.paymentCount}</p>
                 <p className="text-xs text-stone-300">
-                  {formatCurrency(state.payload.summary.paymentTotal)} cargados
+                  {formatCurrency(payload.summary.paymentTotal)} cargados
                 </p>
               </div>
             </div>
@@ -466,8 +473,8 @@ export function StatsScreen() {
           <div className="rounded-[1.4rem] bg-white/8 px-4 py-3 text-right">
             <p className="text-[11px] uppercase tracking-[0.18em] text-stone-400">pendiente</p>
             <p className="mt-1 text-xl font-semibold text-white">
-              {state.payload.summary.activeDebt.settlement
-                ? formatCurrency(state.payload.summary.activeDebt.settlement.amount)
+              {payload.summary.activeDebt.settlement
+                ? formatCurrency(payload.summary.activeDebt.settlement.amount)
                 : "Al día"}
             </p>
           </div>
@@ -508,7 +515,7 @@ export function StatsScreen() {
 
         <div className="mt-4 rounded-[1.3rem] border border-white/10 bg-white/6 px-4 py-3">
           <p className="text-sm font-medium leading-6 text-white">
-            {state.payload.summary.activeDebt.message}
+            {payload.summary.activeDebt.message}
           </p>
         </div>
 
@@ -539,7 +546,7 @@ export function StatsScreen() {
                   className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
                   disabled={isSubmittingPayment}
                 >
-                  {state.payload.users.map((user) => (
+                  {payload.users.map((user) => (
                     <option key={user._id} value={user._id} className="text-stone-950">
                       {user.nombre}
                     </option>
@@ -562,7 +569,7 @@ export function StatsScreen() {
                   className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
                   disabled={isSubmittingPayment}
                 >
-                  {state.payload.users.map((user) => (
+                  {payload.users.map((user) => (
                     <option key={user._id} value={user._id} className="text-stone-950">
                       {user.nombre}
                     </option>
@@ -616,12 +623,12 @@ export function StatsScreen() {
 
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs leading-5 text-stone-300">
-                El pago se aplica a {formatMonthLabel(state.payload.currentMonth)} aunque la fecha real sea otra.
+                El pago se aplica a {formatMonthLabel(payload.currentMonth)} aunque la fecha real sea otra.
               </p>
 
               <button
                 type="submit"
-                disabled={isSubmittingPayment || state.payload.users.length < 2}
+                disabled={isSubmittingPayment || payload.users.length < 2}
                 className="rounded-full bg-teal-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-950 transition hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmittingPayment ? "Guardando..." : "Cargar pago"}
@@ -651,7 +658,7 @@ export function StatsScreen() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-white">
-                        {payment.fromUser?.nombre ?? findUserName(state.payload.users, payment.fromUserId)} pagó a {payment.toUser?.nombre ?? findUserName(state.payload.users, payment.toUserId)}
+                        {payment.fromUser?.nombre ?? findUserName(payload.users, payment.fromUserId)} pagó a {payment.toUser?.nombre ?? findUserName(payload.users, payment.toUserId)}
                       </p>
                       <p className="text-xs uppercase tracking-[0.16em] text-stone-400">
                         {formatExpenseDate(payment.fecha)}
@@ -679,9 +686,9 @@ export function StatsScreen() {
           </h2>
         </div>
 
-        {state.payload.summary.categorySummary.length > 0 ? (
+        {payload.summary.categorySummary.length > 0 ? (
           <div className="mt-4 space-y-3">
-            {state.payload.summary.categorySummary.map((category) => (
+            {payload.summary.categorySummary.map((category) => (
               <div key={category.categoria} className="space-y-1.5">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="truncate text-stone-900">
