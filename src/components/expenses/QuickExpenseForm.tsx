@@ -146,19 +146,38 @@ export function QuickExpenseForm({
         <label htmlFor="categoria" className="text-sm font-medium text-stone-700">
           Categoría
         </label>
-        <select
-          id="categoria"
-          value={safeCategoria}
-          onChange={(event) => setCategoria(event.target.value)}
-          className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
-          disabled={isSubmitting}
-        >
-          {categoryOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.icon} {option.label}
-            </option>
-          ))}
-        </select>
+        <div className="relative">
+          <select
+            id="categoria"
+            value={safeCategoria}
+            onChange={(event) => setCategoria(event.target.value)}
+            className="w-full appearance-none rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 pr-12 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
+            disabled={isSubmitting}
+          >
+            {categoryOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.icon} {option.label}
+              </option>
+            ))}
+          </select>
+
+          <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-stone-500">
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 20 20"
+              fill="none"
+              className="h-5 w-5"
+            >
+              <path
+                d="M5 7.5 10 12.5 15 7.5"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+        </div>
       </div>
 
       <div className="space-y-2">
