@@ -1,0 +1,19 @@
+src/lib/expense-categories.ts
+  s_88992852cfcfb0::t_610067bca2724a 2,5-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0530e117eedb9cd054ec87e54b811b4223190c40",
+  "prompts": {},
+  "sessions": {
+    "s_88992852cfcfb0": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "f09f5943-4c7e-4e10-b80c-1df91bba6fa1",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
