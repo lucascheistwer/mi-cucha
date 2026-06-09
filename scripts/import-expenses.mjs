@@ -17,22 +17,28 @@ const CATEGORY_BY_TOKEN = new Map([
   ["delivery", "delivery"],
 ]);
 
+const DEFAULT_PAYER_ALIASES = new Map([
+  ["luqui", "lucas"],
+  ["tami", "tami"],
+]);
+
 const HELP_TEXT = `Uso:
   npm run import:expenses -- --file=./ruta/gastos.csv --mongo-url='mongodb+srv://...' --household-id='...' [--month-key=2026-06] [--payer-map='tami=tami,luqui=luqui']
   npm run import:expenses -- --file=./ruta/gastos.tsv --mongo-url='mongodb+srv://...' --household-code='ABC123' --commit
 
 Opciones:
-  --file            Ruta al archivo CSV/TSV exportado desde Google Sheets.
+  --file            Ruta al archivo CSV/TSV exportado o pegado desde Google Sheets.
   --mongo-url       URL de Mongo. Tambien puede venir de MONGO_URL.
   --household-id    _id de la cucha destino.
   --household-code  Codigo de invitacion de la cucha destino.
   --month-key       Fuerza que todas las filas pertenezcan al mes YYYY-MM.
-  --payer-map       Alias para pagadores. Ej: 'tami=tamara,luqui=lucas'.
+  --payer-map       Alias extra para pagadores. Ej: 'tami=tamara,luqui=lucas'.
   --commit          Inserta en la base. Sin esto, el script hace dry-run.
   --help            Muestra esta ayuda.
 
 Formato esperado por fila:
   descripcion, categoria, fecha, monto, pagadoPor
+  Tambien acepta encabezados como: Gasto, Categoria, Fecha, Monto, Pagado Por
 
 Ejemplo sin encabezado:
   ABL\tServicios\t1/06/2026\t$14.960\tTami
@@ -55,7 +61,7 @@ function parseArgs(argv) {
     householdId: "",
     mongoUrl: process.env.MONGO_URL ?? "",
     monthKey: "",
-    payerMap: new Map(),
+    payerMap: new Map(DEFAULT_PAYER_ALIASES),
   };
 
   for (const arg of argv) {
@@ -128,7 +134,7 @@ function parsePayerMap(value) {
     .map((entry) => entry.trim())
     .filter(Boolean);
 
-  const payerMap = new Map();
+  const payerMap = new Map(DEFAULT_PAYER_ALIASES);
 
   for (const entry of entries) {
     const separatorIndex = entry.indexOf("=");
@@ -210,7 +216,7 @@ function isHeaderRow(columns) {
   const normalized = columns.slice(0, 5).map((column) => normalizeText(column));
 
   return (
-    normalized[0] === "descripcion" &&
+    (normalized[0] === "descripcion" || normalized[0] === "gasto") &&
     normalized[1] === "categoria" &&
     normalized[2] === "fecha" &&
     normalized[3] === "monto" &&
@@ -284,9 +290,13 @@ function buildUserLookup(users) {
   const lookup = new Map();
 
   for (const user of users) {
-    const tokens = [user.nombre, user.username]
-      .filter(Boolean)
-      .map((value) => normalizeText(value));
+    const tokens = Array.from(
+      new Set(
+        [user.nombre, user.username]
+          .filter(Boolean)
+          .map((value) => normalizeText(value))
+      )
+    );
 
     for (const token of tokens) {
       const bucket = lookup.get(token) ?? [];
@@ -301,14 +311,22 @@ function buildUserLookup(users) {
 function resolveUser(payerLabel, payerMap, userLookup) {
   const rawToken = normalizeText(payerLabel);
   const mappedToken = payerMap.get(rawToken) ?? rawToken;
-  const candidates = userLookup.get(mappedToken) ?? [];
+  const candidates = Array.from(
+    new Map(
+      (userLookup.get(mappedToken) ?? []).map((user) => [user._id.toString(), user])
+    ).values()
+  );
 
   if (candidates.length === 0) {
     throw new Error(`No existe un usuario para el pagador: ${payerLabel}`);
   }
 
   if (candidates.length > 1) {
-    throw new Error(`El pagador ${payerLabel} coincide con multiples usuarios.`);
+    throw new Error(
+      `El pagador ${payerLabel} coincide con multiples usuarios: ${candidates
+        .map((user) => `${user.nombre}(@${user.username})`)
+        .join(", ")}.`
+    );
   }
 
   return candidates[0];
@@ -322,6 +340,208 @@ function buildDuplicateKey(row) {
     row.monto.toFixed(2),
     row.pagadoPorId,
   ].join("|");
+}
+
+function roundCurrency(value) {
+  return Number(value.toFixed(2));
+}
+
+function buildHistorySnapshot({ users, percentages, expenses, payments }) {
+  const totalsByUser = expenses.reduce((accumulator, expense) => {
+    const userId = expense.pagadoPor.toString();
+
+    accumulator.set(
+      userId,
+      roundCurrency((accumulator.get(userId) ?? 0) + Number(expense.monto))
+    );
+
+    return accumulator;
+  }, new Map());
+  const paymentsByUser = payments.reduce((accumulator, payment) => {
+    const fromUserId = payment.fromUserId.toString();
+    const toUserId = payment.toUserId.toString();
+
+    accumulator.set(
+      fromUserId,
+      roundCurrency((accumulator.get(fromUserId) ?? 0) + Number(payment.monto))
+    );
+    accumulator.set(
+      toUserId,
+      roundCurrency((accumulator.get(toUserId) ?? 0) - Number(payment.monto))
+    );
+
+    return accumulator;
+  }, new Map());
+
+  const gastoTotal = roundCurrency(
+    Array.from(totalsByUser.values()).reduce(
+      (runningTotal, currentValue) => runningTotal + currentValue,
+      0
+    )
+  );
+  const paymentTotal = roundCurrency(
+    payments.reduce((runningTotal, payment) => runningTotal + Number(payment.monto), 0)
+  );
+  const hasPairSetup = users.length === 2;
+  const normalizedPercentages = hasPairSetup
+    ? {
+        user1: Number(percentages?.user1 ?? 50),
+        user2: Number(percentages?.user2 ?? 50),
+      }
+    : null;
+  const balances = users.map((user, index) => {
+    const totalPagado = totalsByUser.get(user._id.toString()) ?? 0;
+
+    if (!hasPairSetup || !normalizedPercentages) {
+      return {
+        userId: user._id,
+        totalPagado,
+        saldoNeto: 0,
+      };
+    }
+
+    const porcentajeResponsabilidad = index === 0
+      ? normalizedPercentages.user1
+      : normalizedPercentages.user2;
+    const montoObjetivo = roundCurrency((gastoTotal * porcentajeResponsabilidad) / 100);
+    const saldoNeto = roundCurrency(
+      totalPagado - montoObjetivo + (paymentsByUser.get(user._id.toString()) ?? 0)
+    );
+
+    return {
+      userId: user._id,
+      totalPagado,
+      saldoNeto,
+    };
+  });
+
+  if (!hasPairSetup || !normalizedPercentages || gastoTotal <= 0) {
+    return {
+      gastoTotal,
+      paymentTotal,
+      paymentCount: payments.length,
+      balances,
+      settlement: null,
+    };
+  }
+
+  const sortedByBalance = [...balances].sort(
+    (firstUser, secondUser) => secondUser.saldoNeto - firstUser.saldoNeto
+  );
+  const creditor = sortedByBalance[0];
+  const debtor = sortedByBalance[sortedByBalance.length - 1];
+  const amount = roundCurrency(
+    Math.min(creditor.saldoNeto, Math.abs(debtor.saldoNeto))
+  );
+
+  return {
+    gastoTotal,
+    paymentTotal,
+    paymentCount: payments.length,
+    balances,
+    settlement: amount > 0
+      ? {
+          desde: debtor.userId,
+          hacia: creditor.userId,
+          monto: amount,
+        }
+      : null,
+  };
+}
+
+async function syncHistorySnapshots({
+  db,
+  hogarId,
+  activeMonth,
+  monthKeys,
+  users,
+  percentages,
+}) {
+  const historyMonthKeys = monthKeys.filter((monthKey) => monthKey !== activeMonth);
+
+  if (historyMonthKeys.length === 0) {
+    return [];
+  }
+
+  const [expenses, payments] = await Promise.all([
+    db.collection("expenses")
+      .find(
+        {
+          hogarId,
+          mesLiquidacion: { $in: historyMonthKeys },
+        },
+        {
+          projection: {
+            monto: 1,
+            pagadoPor: 1,
+            mesLiquidacion: 1,
+          },
+        }
+      )
+      .toArray(),
+    db.collection("payments")
+      .find(
+        {
+          hogarId,
+          mesLiquidacion: { $in: historyMonthKeys },
+        },
+        {
+          projection: {
+            monto: 1,
+            fromUserId: 1,
+            toUserId: 1,
+            mesLiquidacion: 1,
+          },
+        }
+      )
+      .toArray(),
+  ]);
+
+  const historyCollection = db.collection("history");
+  const now = new Date();
+  const syncedMonths = [];
+
+  for (const monthKey of historyMonthKeys) {
+    const monthExpenses = expenses.filter((expense) => expense.mesLiquidacion === monthKey);
+    const monthPayments = payments.filter((payment) => payment.mesLiquidacion === monthKey);
+    const snapshot = buildHistorySnapshot({
+      users,
+      percentages,
+      expenses: monthExpenses,
+      payments: monthPayments,
+    });
+
+    await historyCollection.updateOne(
+      {
+        hogarId,
+        mesLiquidacion: monthKey,
+      },
+      {
+        $set: {
+          gastoTotal: snapshot.gastoTotal,
+          totalPagos: snapshot.paymentTotal,
+          cantidadPagos: snapshot.paymentCount,
+          deudaPendiente: snapshot.settlement?.monto ?? 0,
+          resumenSaldos: {
+            balances: snapshot.balances,
+            transferenciaSugerida: snapshot.settlement ?? undefined,
+          },
+          updatedAt: now,
+        },
+        $setOnInsert: {
+          createdAt: now,
+          cerradoEl: now,
+        },
+      },
+      {
+        upsert: true,
+      }
+    );
+
+    syncedMonths.push(monthKey);
+  }
+
+  return syncedMonths;
 }
 
 async function loadRows(filePath) {
@@ -385,7 +605,13 @@ async function main() {
       ? { _id: new mongoose.Types.ObjectId(options.householdId) }
       : { codigoInvitacion: options.householdCode.trim().toUpperCase() };
     const household = await households.findOne(householdQuery, {
-      projection: { _id: 1, nombre: 1, codigoInvitacion: 1, mesActivo: 1 },
+      projection: {
+        _id: 1,
+        nombre: 1,
+        codigoInvitacion: 1,
+        mesActivo: 1,
+        porcentajesDefecto: 1,
+      },
     });
 
     if (!household) {
@@ -532,27 +758,44 @@ async function main() {
       return;
     }
 
-    if (rowsToInsert.length === 0) {
-      console.log("No hay filas nuevas para insertar.");
-      return;
+    let insertedCount = 0;
+
+    if (rowsToInsert.length > 0) {
+      const now = new Date();
+      const documents = rowsToInsert.map((row) => ({
+        hogarId: household._id,
+        descripcion: row.descripcion,
+        monto: row.monto,
+        categoria: row.categoria,
+        fecha: row.fecha,
+        pagadoPor: new mongoose.Types.ObjectId(row.pagadoPorId),
+        mesLiquidacion: row.mesLiquidacion,
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+      const result = await expensesCollection.insertMany(documents, { ordered: true });
+      insertedCount = result.insertedCount;
     }
 
-    const now = new Date();
-    const documents = rowsToInsert.map((row) => ({
+    const syncedHistoryMonths = await syncHistorySnapshots({
+      db,
       hogarId: household._id,
-      descripcion: row.descripcion,
-      monto: row.monto,
-      categoria: row.categoria,
-      fecha: row.fecha,
-      pagadoPor: new mongoose.Types.ObjectId(row.pagadoPorId),
-      mesLiquidacion: row.mesLiquidacion,
-      createdAt: now,
-      updatedAt: now,
-    }));
+      activeMonth: household.mesActivo,
+      monthKeys,
+      users,
+      percentages: household.porcentajesDefecto,
+    });
 
-    const result = await expensesCollection.insertMany(documents, { ordered: true });
+    if (insertedCount === 0) {
+      console.log("No hay filas nuevas para insertar.");
+    } else {
+      console.log(`Importacion completada. Documentos insertados: ${insertedCount}`);
+    }
 
-    console.log(`Importacion completada. Documentos insertados: ${result.insertedCount}`);
+    if (syncedHistoryMonths.length > 0) {
+      console.log(`Snapshots historicos sincronizados: ${syncedHistoryMonths.join(", ")}`);
+    }
   } finally {
     await mongoose.disconnect();
   }

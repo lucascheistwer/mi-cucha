@@ -154,7 +154,7 @@ export async function buildMonthlyDashboardPayload(input: {
     };
   }
 
-  const [users, expenses, payments, histories] = await Promise.all([
+  const [users, expenses, payments, histories, expenseMonths, paymentMonths] = await Promise.all([
     User.find({ hogarId: input.hogarId }).select("_id nombre username").sort({ nombre: 1 }).lean(),
     Expense.find({ hogarId: input.hogarId, mesLiquidacion: selectedMonth })
       .sort({ fecha: -1, createdAt: -1 })
@@ -166,6 +166,8 @@ export async function buildMonthlyDashboardPayload(input: {
       .select("mesLiquidacion cerradoEl")
       .sort({ mesLiquidacion: -1 })
       .lean(),
+    Expense.distinct("mesLiquidacion", { hogarId: input.hogarId }),
+    Payment.distinct("mesLiquidacion", { hogarId: input.hogarId }),
   ]);
 
   const userMap = new Map(
@@ -196,6 +198,8 @@ export async function buildMonthlyDashboardPayload(input: {
     mappedHousehold.activeMonth,
     selectedMonth,
     ...histories.map((history) => history.mesLiquidacion),
+    ...expenseMonths.filter(isValidMonthKey),
+    ...paymentMonths.filter(isValidMonthKey),
   ]);
   const availableMonths = Array.from(monthSet)
     .sort(sortMonthKeysDesc)

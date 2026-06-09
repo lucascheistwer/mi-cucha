@@ -1,14 +1,26 @@
-descripcion	categoria	fecha	monto	pagadoPor
-ABL	Servicios	1/06/2026	$14.960	Tami
-Seña sillón	Para la Casa	2/06/2026	$363.500	Luqui
-Compras MELI	Para la Casa	2/06/2026	$73.501	Luqui
-Edesur	Servicios	2/06/2026	$22.869	Luqui
-Expensas	Servicios	2/06/2026	$109.734	Luqui
-Flow	Servicios	3/06/2026	$41.704	Tami
-Ferretería	Para la Casa	3/06/2026	$24.000	Tami
-Vivero	Para la Casa	3/06/2026	$20.100	Tami
-Tita	Para la Casa	3/06/2026	$60.000	Luqui
-Havanna	Salidas/Ocio	3/06/2026	$39.000	Luqui
-Gancho maceta	Para la Casa	4/06/2026	$12.487	Tami
-Salchichas	Comida	4/06/2026	$16.000	Tami
-Coto	Comida	7/06/2026	$97.190	Luqui
+Gasto	Categoría	Fecha	Monto	Pagado Por
+Sushi Ko	Delivery	7/12/2025	$28.460	Luqui
+Uber	Transporte	7/12/2025	$4.200	Luqui
+Día	Comida	7/12/2025	$30.885	Tami
+Coto	Comida	8/12/2025	$82.830	Luqui
+Carne	Comida	9/12/2025	$70.601	Tami
+Granola y barras integra	Comida	9/12/2025	$50.196	Luqui
+Carne 	Comida	10/12/2025	$100.024	Luqui
+Arreglo lavarropas	Para la Casa	10/12/2025	$40.000	Luqui
+Verdulería	Comida	11/12/2025	$3.934	Tami
+Matok 	Comida	12/12/2025	$27.000	Tami
+Carrefour	Comida	12/12/2025	$11.000	Luqui
+Rincon Norteño	Delivery	13/12/2025	$20.000	Luqui
+Carrefour	Comida	14/12/2025	$14.000	Luqui
+WD40 - Carrefour	Para la Casa	14/12/2025	$10.280	Luqui
+Edesur	Servicios	18/12/2025	$14.662	Luqui
+Carrefour	Comida	18/12/2025	$28.000	Luqui
+Verdulería	Comida	18/12/2025	$26.750	Luqui
+Carrefour	Comida	23/12/2025	$15.280	Luqui
+Merienda 	Salidas/Ocio	25/12/2025	$23.000	Tami
+Carrefour	Comida	23/12/2025	$26.579	Luqui
+Farmacity	Para la Casa	23/12/2025	$15.662	Luqui
+Carrefour	Comida	28/12/2025	$14.488	Luqui
+Carrefour	Comida	29/12/2025	$5.379	Luqui
+Carrefour	Comida	30/12/2025	$10.954	Luqui
+Carrefour	Comida	31/12/2025	$2.370	Luqui

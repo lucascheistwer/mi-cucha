@@ -319,6 +319,8 @@ export function StatsScreen() {
 
   const payload = state.payload;
   const viewingPastMonth = !payload.monthState.isCurrent;
+  const totalHistoryPages = payload.availableMonths.length;
+  const currentHistoryPage = currentMonthIndex >= 0 ? currentMonthIndex + 1 : 1;
   const canMoveToNewerMonth = currentMonthIndex > 0;
   const canMoveToOlderMonth =
     currentMonthIndex >= 0 && currentMonthIndex < payload.availableMonths.length - 1;
@@ -381,36 +383,9 @@ export function StatsScreen() {
               <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-600">
                 Históricos
               </h2>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!canMoveToNewerMonth) {
-                      return;
-                    }
-
-                    setSelectedMonth(payload.availableMonths[currentMonthIndex - 1].monthKey);
-                  }}
-                  disabled={!canMoveToNewerMonth}
-                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Más nuevo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!canMoveToOlderMonth) {
-                      return;
-                    }
-
-                    setSelectedMonth(payload.availableMonths[currentMonthIndex + 1].monthKey);
-                  }}
-                  disabled={!canMoveToOlderMonth}
-                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Más viejo
-                </button>
-              </div>
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
+                Página {currentHistoryPage} de {totalHistoryPages}
+              </p>
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -439,6 +414,41 @@ export function StatsScreen() {
               <p className="mt-3 text-xs text-stone-500">
                 Mostrando {visibleMonths.length} de {payload.availableMonths.length} meses.
               </p>
+            ) : null}
+
+            {totalHistoryPages > 1 ? (
+              <div className="mt-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!canMoveToNewerMonth) {
+                      return;
+                    }
+
+                    setSelectedMonth(payload.availableMonths[currentMonthIndex - 1].monthKey);
+                  }}
+                  disabled={!canMoveToNewerMonth}
+                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Ver resumen anterior"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!canMoveToOlderMonth) {
+                      return;
+                    }
+
+                    setSelectedMonth(payload.availableMonths[currentMonthIndex + 1].monthKey);
+                  }}
+                  disabled={!canMoveToOlderMonth}
+                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Ver resumen siguiente"
+                >
+                  Siguiente
+                </button>
+              </div>
             ) : null}
           </div>
 
