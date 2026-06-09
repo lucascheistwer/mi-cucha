@@ -1,0 +1,25 @@
+src/lib/date-helpers.ts
+  s_dcd2b4b46bd6c7::t_e09d9eb32f1a45 1-2,4-7,15-38,79,81
+src/app/api/expenses/route.ts
+  s_dcd2b4b46bd6c7::t_6ba93266513871 5,73-74,99,129,186
+src/components/expenses/StatsScreen.tsx
+  s_dcd2b4b46bd6c7::t_a39f37d5029257 79,150-152,155,310-314,411-412,414,420-425,427
+src/app/api/payments/route.ts
+  s_dcd2b4b46bd6c7::t_9d65ba9b0ec874 6,48-49,73,225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "1ea947f600435aa8477be3d3a0f7aa2e176a4f04",
+  "prompts": {},
+  "sessions": {
+    "s_dcd2b4b46bd6c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eac71-d3b9-75a2-a29b-6ec80168343e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
