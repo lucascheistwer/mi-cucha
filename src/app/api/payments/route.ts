@@ -3,7 +3,7 @@ import { Types } from "mongoose";
 
 import { AUTH_COOKIE_NAME, getExpiredSessionCookie, verifySessionToken } from "@/lib/auth";
 import { dbConnect } from "@/lib/dbConnect";
-import { getMonthKey } from "@/lib/date-helpers";
+import { getMonthKey, parseDateInputValue } from "@/lib/date-helpers";
 import {
   buildMonthlyDashboardPayload,
   isValidMonthKey,
@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
   const fromUserId = body?.fromUserId?.trim() ?? "";
   const toUserId = body?.toUserId?.trim() ?? "";
   const monthKey = body?.mesLiquidacion?.trim() ?? "";
-  const fecha = body?.fecha ? new Date(body.fecha) : new Date();
+  const rawFecha = body?.fecha?.trim();
+  const fecha = rawFecha ? parseDateInputValue(rawFecha) : new Date();
   const monto = Number(body?.monto);
 
   if (!Types.ObjectId.isValid(fromUserId) || !Types.ObjectId.isValid(toUserId)) {
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!isValidMonthKey(monthKey) || Number.isNaN(fecha.getTime())) {
+  if (!isValidMonthKey(monthKey) || !fecha || Number.isNaN(fecha.getTime())) {
     return NextResponse.json(
       { error: "Revisá el mes del resumen y la fecha del pago." },
       { status: 400 }

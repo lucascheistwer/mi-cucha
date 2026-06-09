@@ -76,6 +76,7 @@ function findUserName(users: HouseholdUserOption[], userId: string) {
 
 export function StatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(0);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [state, setState] = useState<LoadState>({
     payload: null,
@@ -139,15 +140,6 @@ export function StatsScreen() {
 
   const spendingRows = useMemo(() => state.payload?.summary.spendingByUser ?? [], [state.payload]);
   const payments = useMemo(() => state.payload?.payments ?? [], [state.payload]);
-  const currentMonthIndex = useMemo(() => {
-    const payload = state.payload;
-
-    if (!payload) {
-      return -1;
-    }
-
-    return payload.availableMonths.findIndex((month) => month.monthKey === payload.currentMonth);
-  }, [state.payload]);
   const visibleMonths = useMemo(() => {
     const payload = state.payload;
 
@@ -155,16 +147,12 @@ export function StatsScreen() {
       return [];
     }
 
-    if (payload.availableMonths.length <= MAX_VISIBLE_MONTHS) {
-      return payload.availableMonths;
-    }
-
-    const maxStartIndex = payload.availableMonths.length - MAX_VISIBLE_MONTHS;
-    const safeMonthIndex = currentMonthIndex < 0 ? 0 : currentMonthIndex;
-    const startIndex = Math.min(Math.max(safeMonthIndex - 2, 0), maxStartIndex);
+    const totalPages = Math.max(1, Math.ceil(payload.availableMonths.length / MAX_VISIBLE_MONTHS));
+    const safeHistoryPage = Math.max(0, Math.min(historyPage, totalPages - 1));
+    const startIndex = safeHistoryPage * MAX_VISIBLE_MONTHS;
 
     return payload.availableMonths.slice(startIndex, startIndex + MAX_VISIBLE_MONTHS);
-  }, [currentMonthIndex, state.payload]);
+  }, [historyPage, state.payload]);
 
   function openFinalizeDialog(message: string, settlement: ActiveDebtSettlement | null) {
     setFinalizeDialog({
@@ -319,11 +307,11 @@ export function StatsScreen() {
 
   const payload = state.payload;
   const viewingPastMonth = !payload.monthState.isCurrent;
-  const totalHistoryPages = payload.availableMonths.length;
-  const currentHistoryPage = currentMonthIndex >= 0 ? currentMonthIndex + 1 : 1;
-  const canMoveToNewerMonth = currentMonthIndex > 0;
-  const canMoveToOlderMonth =
-    currentMonthIndex >= 0 && currentMonthIndex < payload.availableMonths.length - 1;
+  const totalHistoryPages = Math.max(1, Math.ceil(payload.availableMonths.length / MAX_VISIBLE_MONTHS));
+  const safeHistoryPage = Math.max(0, Math.min(historyPage, totalHistoryPages - 1));
+  const currentHistoryPage = safeHistoryPage + 1;
+  const canMoveToPreviousHistoryPage = safeHistoryPage > 0;
+  const canMoveToNextHistoryPage = safeHistoryPage < totalHistoryPages - 1;
 
   return (
     <div className="space-y-4">
@@ -420,31 +408,23 @@ export function StatsScreen() {
               <div className="mt-3 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!canMoveToNewerMonth) {
-                      return;
-                    }
-
-                    setSelectedMonth(payload.availableMonths[currentMonthIndex - 1].monthKey);
-                  }}
-                  disabled={!canMoveToNewerMonth}
+                  onClick={() => setHistoryPage((currentPage) => Math.max(currentPage - 1, 0))}
+                  disabled={!canMoveToPreviousHistoryPage}
                   className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label="Ver resumen anterior"
+                  aria-label="Ver página anterior de históricos"
                 >
                   Anterior
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!canMoveToOlderMonth) {
-                      return;
-                    }
-
-                    setSelectedMonth(payload.availableMonths[currentMonthIndex + 1].monthKey);
-                  }}
-                  disabled={!canMoveToOlderMonth}
+                  onClick={() =>
+                    setHistoryPage((currentPage) =>
+                      Math.min(currentPage + 1, totalHistoryPages - 1)
+                    )
+                  }
+                  disabled={!canMoveToNextHistoryPage}
                   className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label="Ver resumen siguiente"
+                  aria-label="Ver página siguiente de históricos"
                 >
                   Siguiente
                 </button>

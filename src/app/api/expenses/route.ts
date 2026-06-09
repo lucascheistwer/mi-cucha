@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { AUTH_COOKIE_NAME, getExpiredSessionCookie, verifySessionToken } from "@/lib/auth";
 import { dbConnect } from "@/lib/dbConnect";
-import { getMonthKey } from "@/lib/date-helpers";
+import { getMonthKey, parseDateInputValue } from "@/lib/date-helpers";
 import {
   EXPENSE_CATEGORY_VALUES,
   isExpenseCategoryValue,
@@ -70,7 +70,8 @@ export async function POST(request: NextRequest) {
 
   const descripcion = body?.descripcion?.trim();
   const categoria = body?.categoria?.trim();
-  const fecha = body?.fecha ? new Date(body.fecha) : new Date();
+  const rawFecha = body?.fecha?.trim();
+  const fecha = rawFecha ? parseDateInputValue(rawFecha) : new Date();
   const monto = Number(body?.monto);
   const pagadoPor = body?.pagadoPor?.trim();
 
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!pagadoPor || Number.isNaN(fecha.getTime())) {
+  if (!pagadoPor || !fecha || Number.isNaN(fecha.getTime())) {
     return NextResponse.json(
       { error: "Revisá la fecha y quién pagó el gasto." },
       { status: 400 }
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest) {
   }
 
   const activeMonth = household.mesActivo ?? getMonthKey(new Date());
-  const expenseMonth = getMonthKey(fecha);
+  const expenseMonth = rawFecha ? getMonthKey(rawFecha) : getMonthKey(fecha);
 
   if (expenseMonth !== activeMonth) {
     return NextResponse.json(
