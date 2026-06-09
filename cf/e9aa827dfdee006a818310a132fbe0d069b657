@@ -1,0 +1,30 @@
+gastos.tsv
+  h_4f59ee1b9f9c43 1-26
+src/lib/monthly-dashboard.ts
+  s_88992852cfcfb0::t_e7d24a3ab69860 157,169-170,201-202
+scripts/import-expenses.mjs
+  s_88992852cfcfb0::t_08bb60ee150dee 293-299,314-318,325-329
+  s_88992852cfcfb0::t_ef899742f2be35 345-546,608-614,761-778,781-782,784-798
+  s_88992852cfcfb0::t_f922c4baa5b013 20-24,30,35,41,64,137,219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "cfe9aa827dfdee006a818310a132fbe0d069b657",
+  "prompts": {},
+  "humans": {
+    "h_4f59ee1b9f9c43": {
+      "author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  },
+  "sessions": {
+    "s_88992852cfcfb0": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "f09f5943-4c7e-4e10-b80c-1df91bba6fa1",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
