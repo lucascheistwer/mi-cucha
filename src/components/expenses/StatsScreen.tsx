@@ -7,6 +7,7 @@ import { formatExpenseDate, formatMonthLabel, getTodayInputValue } from "@/lib/d
 import { formatCurrency } from "@/lib/utils";
 import type {
   ActiveDebtSettlement,
+  ExpenseListItem,
   ExpensesDashboardPayload,
   HouseholdUserOption,
 } from "@/types/expense";
@@ -30,6 +31,14 @@ type FinalizeDialogState = {
   settlement: ActiveDebtSettlement | null;
 };
 
+type DailySpendSummary = {
+  dateKey: string;
+  label: string;
+  total: number;
+  count: number;
+};
+
+const ALL_CATEGORY_FILTER = "all";
 const MAX_VISIBLE_MONTHS = 5;
 
 async function parseJson<T>(response: Response) {
@@ -74,8 +83,222 @@ function findUserName(users: HouseholdUserOption[], userId: string) {
   return users.find((user) => user._id === userId)?.nombre ?? "Persona";
 }
 
+function roundCurrencyAmount(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function getExpenseDateKey(expense: ExpenseListItem) {
+  return expense.fecha.slice(0, 10);
+}
+
+function formatDayLabel(dateKey: string) {
+  return formatExpenseDate(`${dateKey}T12:00:00.000Z`);
+}
+
+function sortExpensesByNewest(firstExpense: ExpenseListItem, secondExpense: ExpenseListItem) {
+  const dateDiff =
+    new Date(secondExpense.fecha).getTime() - new Date(firstExpense.fecha).getTime();
+
+  return (
+    dateDiff ||
+    new Date(secondExpense.createdAt).getTime() -
+      new Date(firstExpense.createdAt).getTime()
+  );
+}
+
+function sortExpensesByAmountDesc(firstExpense: ExpenseListItem, secondExpense: ExpenseListItem) {
+  return secondExpense.monto - firstExpense.monto || sortExpensesByNewest(firstExpense, secondExpense);
+}
+
+function buildDailySpendSummary(expenses: ExpenseListItem[]) {
+  const totalsByDate = expenses.reduce<Map<string, { total: number; count: number }>>(
+    (accumulator, expense) => {
+      const dateKey = getExpenseDateKey(expense);
+      const currentValue = accumulator.get(dateKey) ?? { total: 0, count: 0 };
+
+      accumulator.set(dateKey, {
+        total: roundCurrencyAmount(currentValue.total + expense.monto),
+        count: currentValue.count + 1,
+      });
+
+      return accumulator;
+    },
+    new Map()
+  );
+
+  return Array.from(totalsByDate.entries())
+    .sort(([firstDate], [secondDate]) => firstDate.localeCompare(secondDate))
+    .map<DailySpendSummary>(([dateKey, daySummary]) => ({
+      dateKey,
+      label: formatDayLabel(dateKey),
+      total: daySummary.total,
+      count: daySummary.count,
+    }));
+}
+
+function formatSheetDate(value: string) {
+  const [year, month, day] = value.slice(0, 10).split("-");
+
+  return `${Number(day)}/${month}/${year}`;
+}
+
+function formatSheetCurrency(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("es-AR", {
+    currency: "ARS",
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    style: "currency",
+  }).format(value).replace(/\s/g, "");
+}
+
+function escapeSheetCell(value: string | number | null | undefined) {
+  return `${value ?? ""}`.replace(/\t/g, " ").replace(/\r?\n/g, " ");
+}
+
+function escapeHtmlCell(value: string | number | null | undefined) {
+  return `${value ?? ""}`
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildSheetsExport(payload: ExpensesDashboardPayload) {
+  const categoryLabels = new Map(
+    payload.summary.categorySummary.map((category) => [category.categoria, category.label])
+  );
+  const sortedExpenses = [...payload.expenses].sort((firstExpense, secondExpense) => {
+    const dateDiff =
+      new Date(firstExpense.fecha).getTime() - new Date(secondExpense.fecha).getTime();
+
+    return dateDiff || firstExpense.descripcion.localeCompare(secondExpense.descripcion);
+  });
+  const sortedPayments = [...payload.payments].sort((firstPayment, secondPayment) => {
+    const dateDiff =
+      new Date(firstPayment.fecha).getTime() - new Date(secondPayment.fecha).getTime();
+
+    return dateDiff || firstPayment.monto - secondPayment.monto;
+  });
+  const rows: Array<Array<string | number | null | undefined>> = [];
+  const styledCells = new Set<string>();
+
+  function setCell(rowIndex: number, columnIndex: number, value: string | number | null | undefined) {
+    rows[rowIndex] ??= [];
+    rows[rowIndex][columnIndex] = value;
+  }
+
+  function setStyledCell(rowIndex: number, columnIndex: number, value: string | number | null | undefined) {
+    setCell(rowIndex, columnIndex, value);
+    styledCells.add(`${rowIndex}:${columnIndex}`);
+  }
+
+  setCell(0, 0, "Gasto");
+  setCell(0, 1, "Categoría");
+  setCell(0, 2, "Fecha");
+  setCell(0, 3, "Monto");
+  setCell(0, 4, "Pagado Por");
+  setStyledCell(2, 6, "Total");
+  setStyledCell(2, 7, formatSheetCurrency(payload.summary.gastoTotal));
+
+  sortedExpenses.forEach((expense, index) => {
+    const rowIndex = index + 1;
+
+    setCell(rowIndex, 0, expense.descripcion);
+    setCell(rowIndex, 1, categoryLabels.get(expense.categoria) ?? expense.categoria);
+    setCell(rowIndex, 2, formatSheetDate(expense.fecha));
+    setCell(rowIndex, 3, formatSheetCurrency(expense.monto));
+    setCell(rowIndex, 4, expense.pagadoPorDetalle?.nombre ?? findUserName(payload.users, expense.pagadoPor));
+  });
+
+  payload.summary.spendingByUser.forEach((user, index) => {
+    const rowIndex = index * 2 + 4;
+
+    setStyledCell(rowIndex, 6, `Pagado por ${user.nombre}`);
+    setStyledCell(rowIndex, 7, formatSheetCurrency(user.totalPagado));
+  });
+
+  const saldoRowIndex = Math.max(payload.summary.spendingByUser.length * 2 + 4, 8);
+  setStyledCell(saldoRowIndex, 6, "Saldo del Mes");
+  setStyledCell(saldoRowIndex, 7, formatSheetCurrency(payload.summary.activeDebt.settlement?.amount ?? 0));
+
+  const paymentsHeaderRowIndex = saldoRowIndex + 4;
+  setStyledCell(paymentsHeaderRowIndex, 6, "Fecha");
+  setStyledCell(paymentsHeaderRowIndex, 7, "Pago de Saldo");
+  setStyledCell(paymentsHeaderRowIndex, 8, "Quién");
+
+  if (sortedPayments.length === 0) {
+    setCell(paymentsHeaderRowIndex + 1, 6, "Sin pagos");
+  } else {
+    sortedPayments.forEach((payment, index) => {
+      const rowIndex = paymentsHeaderRowIndex + index + 1;
+
+      setCell(rowIndex, 6, formatSheetDate(payment.fecha));
+      setCell(rowIndex, 7, formatSheetCurrency(payment.monto));
+      setCell(rowIndex, 8, payment.fromUser?.nombre ?? findUserName(payload.users, payment.fromUserId));
+    });
+  }
+
+  const statusRowIndex = paymentsHeaderRowIndex + Math.max(sortedPayments.length, 1) + 3;
+  setCell(statusRowIndex, 6, payload.summary.activeDebt.message);
+
+  const categoryHeaderRowIndex = statusRowIndex + 3;
+  setStyledCell(categoryHeaderRowIndex, 6, "Categoría");
+  setStyledCell(categoryHeaderRowIndex, 7, "Gasto Total");
+
+  payload.summary.categorySummary.forEach((category, index) => {
+    const rowIndex = categoryHeaderRowIndex + index + 1;
+
+    setCell(rowIndex, 6, category.label);
+    setCell(rowIndex, 7, formatSheetCurrency(category.total));
+  });
+
+  const text = rows
+    .map((row) => {
+      const lastColumnIndex = row.reduce<number>(
+        (lastIndex, cell, index) =>
+          cell === undefined || cell === null || cell === "" ? lastIndex : index,
+        0
+      );
+
+      return Array.from({ length: lastColumnIndex + 1 }, (_, index) =>
+        escapeSheetCell(row[index])
+      ).join("\t");
+    })
+    .join("\n");
+  const htmlRows = rows
+    .map((row, rowIndex) => {
+      const lastColumnIndex = row.reduce<number>(
+        (lastIndex, cell, index) =>
+          cell === undefined || cell === null || cell === "" ? lastIndex : index,
+        0
+      );
+      const cells = Array.from({ length: lastColumnIndex + 1 }, (_, columnIndex) => {
+        const isStyled = styledCells.has(`${rowIndex}:${columnIndex}`) || rowIndex === 0;
+        const tagName = isStyled ? "th" : "td";
+        const style = isStyled
+          ? "border:1px solid #444;background:#f1f5f9;font-weight:700;padding:4px 8px;text-align:left;"
+          : "border:1px solid #d4d4d4;padding:4px 8px;text-align:left;";
+
+        return `<${tagName} style="${style}">${escapeHtmlCell(row[columnIndex])}</${tagName}>`;
+      }).join("");
+
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+
+  return {
+    html: `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:10pt;">${htmlRows}</table>`,
+    text,
+  };
+}
+
 export function StatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORY_FILTER);
   const [historyPage, setHistoryPage] = useState(0);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [state, setState] = useState<LoadState>({
@@ -86,6 +309,8 @@ export function StatsScreen() {
   const [paymentForm, setPaymentForm] = useState<PaymentFormState>(buildDefaultPaymentForm(null));
   const [paymentError, setPaymentError] = useState("");
   const [paymentFeedback, setPaymentFeedback] = useState("");
+  const [sheetExportText, setSheetExportText] = useState("");
+  const [sheetExportFeedback, setSheetExportFeedback] = useState("");
   const [finalizeError, setFinalizeError] = useState("");
   const [finalizeDialog, setFinalizeDialog] = useState<FinalizeDialogState>({
     isOpen: false,
@@ -127,6 +352,8 @@ export function StatsScreen() {
       setPaymentForm(buildDefaultPaymentForm(data));
       setPaymentError("");
       setPaymentFeedback("");
+      setSheetExportText("");
+      setSheetExportFeedback("");
       setFinalizeError("");
       setState({ payload: data, error: "", isLoading: false });
     }
@@ -140,6 +367,59 @@ export function StatsScreen() {
 
   const spendingRows = useMemo(() => state.payload?.summary.spendingByUser ?? [], [state.payload]);
   const payments = useMemo(() => state.payload?.payments ?? [], [state.payload]);
+  const categorySummaries = useMemo(
+    () => state.payload?.summary.categorySummary ?? [],
+    [state.payload]
+  );
+  const activeCategoryFilter =
+    selectedCategory === ALL_CATEGORY_FILTER ||
+    categorySummaries.some((category) => category.categoria === selectedCategory)
+      ? selectedCategory
+      : ALL_CATEGORY_FILTER;
+  const expenseCountByCategory = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    state.payload?.expenses.forEach((expense) => {
+      counts.set(expense.categoria, (counts.get(expense.categoria) ?? 0) + 1);
+    });
+
+    return counts;
+  }, [state.payload]);
+  const selectedCategorySummary = useMemo(
+    () =>
+      activeCategoryFilter === ALL_CATEGORY_FILTER
+        ? null
+        : categorySummaries.find((category) => category.categoria === activeCategoryFilter) ?? null,
+    [activeCategoryFilter, categorySummaries]
+  );
+  const filteredExpenses = useMemo(() => {
+    const expenses = state.payload?.expenses ?? [];
+    const visibleExpenses =
+      activeCategoryFilter === ALL_CATEGORY_FILTER
+        ? expenses
+        : expenses.filter((expense) => expense.categoria === activeCategoryFilter);
+
+    return [...visibleExpenses].sort(sortExpensesByNewest);
+  }, [activeCategoryFilter, state.payload]);
+  const dailySpendSummary = useMemo(
+    () => buildDailySpendSummary(filteredExpenses),
+    [filteredExpenses]
+  );
+  const biggestExpenses = useMemo(
+    () => [...filteredExpenses].sort(sortExpensesByAmountDesc).slice(0, 5),
+    [filteredExpenses]
+  );
+  const biggestDay = useMemo(
+    () =>
+      dailySpendSummary.reduce<DailySpendSummary | null>(
+        (currentBiggestDay, daySummary) =>
+          !currentBiggestDay || daySummary.total > currentBiggestDay.total
+            ? daySummary
+            : currentBiggestDay,
+        null
+      ),
+    [dailySpendSummary]
+  );
   const visibleMonths = useMemo(() => {
     const payload = state.payload;
 
@@ -242,6 +522,34 @@ export function StatsScreen() {
     });
   }
 
+  async function handleCopySheetsExport() {
+    if (!state.payload || !state.payload.monthState.isFinalized) {
+      return;
+    }
+
+    const sheetsExport = buildSheetsExport(state.payload);
+
+    setSheetExportText(sheetsExport.text);
+    setSheetExportFeedback("");
+
+    try {
+      if ("ClipboardItem" in window && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([sheetsExport.html], { type: "text/html" }),
+            "text/plain": new Blob([sheetsExport.text], { type: "text/plain" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(sheetsExport.text);
+      }
+
+      setSheetExportFeedback("Export copiado. Ya lo podés pegar en tu plantilla.");
+    } catch {
+      setSheetExportFeedback("No pudimos copiarlo automático. Usá el bloque de abajo.");
+    }
+  }
+
   async function handleCreatePayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -312,6 +620,25 @@ export function StatsScreen() {
   const currentHistoryPage = safeHistoryPage + 1;
   const canMoveToPreviousHistoryPage = safeHistoryPage > 0;
   const canMoveToNextHistoryPage = safeHistoryPage < totalHistoryPages - 1;
+  const selectedCategoryLabel = selectedCategorySummary
+    ? `${selectedCategorySummary.icon} ${selectedCategorySummary.label}`
+    : "Todas";
+  const selectedExpensesTotal =
+    activeCategoryFilter === ALL_CATEGORY_FILTER
+      ? payload.summary.gastoTotal
+      : selectedCategorySummary?.total ?? 0;
+  const averageExpense =
+    filteredExpenses.length > 0 ? selectedExpensesTotal / filteredExpenses.length : 0;
+  const biggestExpense = biggestExpenses[0] ?? null;
+  const biggestExpenseShare =
+    biggestExpense && selectedExpensesTotal > 0
+      ? Math.round((biggestExpense.monto / selectedExpensesTotal) * 100)
+      : 0;
+  const topThreeTotal = biggestExpenses
+    .slice(0, 3)
+    .reduce((runningTotal, expense) => runningTotal + expense.monto, 0);
+  const topThreeShare =
+    selectedExpensesTotal > 0 ? Math.round((topThreeTotal / selectedExpensesTotal) * 100) : 0;
 
   return (
     <div className="space-y-4">
@@ -353,6 +680,12 @@ export function StatsScreen() {
               className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
             >
               Volver
+            </Link>
+            <Link
+              href="/estadisticas"
+              className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:text-teal-950"
+            >
+              Comparar meses
             </Link>
             {payload.monthState.canFinalize ? (
               <button
@@ -431,6 +764,44 @@ export function StatsScreen() {
               </div>
             ) : null}
           </div>
+
+          {payload.monthState.isFinalized ? (
+            <div className="rounded-[1.4rem] border border-teal-100 bg-teal-50/80 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-teal-900">
+                    Export Sheets
+                  </h2>
+                  <p className="mt-1 text-xs leading-5 text-teal-800">
+                    {formatMonthLabel(payload.currentMonth)} listo para pegar en plantilla.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleCopySheetsExport();
+                  }}
+                  className="rounded-full bg-teal-700 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-teal-800"
+                >
+                  Copiar para Sheets
+                </button>
+              </div>
+
+              {sheetExportFeedback ? (
+                <p className="mt-3 text-sm text-teal-900">{sheetExportFeedback}</p>
+              ) : null}
+
+              {sheetExportText ? (
+                <textarea
+                  readOnly
+                  value={sheetExportText}
+                  className="mt-3 h-28 w-full resize-none rounded-2xl border border-teal-200 bg-white/85 px-3 py-2 font-mono text-xs text-stone-700 outline-none"
+                  aria-label="Export para copiar y pegar en Sheets"
+                />
+              ) : null}
+            </div>
+          ) : null}
 
           {finalizeError ? (
             <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -670,35 +1041,256 @@ export function StatsScreen() {
       </section>
 
       <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold tracking-tight text-stone-950">
-            Categorías
-          </h2>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-stone-950">
+              Categorías
+            </h2>
+            <p className="mt-1 text-sm text-stone-500">
+              {selectedCategoryLabel} · {filteredExpenses.length} gastos
+            </p>
+          </div>
+          <span className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
+            {formatCurrency(selectedExpensesTotal)}
+          </span>
         </div>
 
-        {payload.summary.categorySummary.length > 0 ? (
-          <div className="mt-4 space-y-3">
-            {payload.summary.categorySummary.map((category) => (
-              <div key={category.categoria} className="space-y-1.5">
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="truncate text-stone-900">
-                    {category.icon} {category.label}
-                  </span>
-                  <span className="shrink-0 text-stone-600">
-                    {formatCurrency(category.total)}
-                  </span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-stone-200">
-                  <div
-                    className="h-full rounded-full bg-teal-500 transition-[width]"
-                    style={{ width: `${Math.min(category.percentage, 100)}%` }}
-                  />
-                </div>
+        {categorySummaries.length > 0 ? (
+          <>
+            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+              <button
+                type="button"
+                onClick={() => setSelectedCategory(ALL_CATEGORY_FILTER)}
+                aria-pressed={activeCategoryFilter === ALL_CATEGORY_FILTER}
+                className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                  activeCategoryFilter === ALL_CATEGORY_FILTER
+                    ? "bg-stone-950 text-white"
+                    : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
+                }`}
+              >
+                Todas · {payload.expenses.length}
+              </button>
+
+              {categorySummaries.map((category) => {
+                const isSelected = activeCategoryFilter === category.categoria;
+
+                return (
+                  <button
+                    key={category.categoria}
+                    type="button"
+                    onClick={() => setSelectedCategory(category.categoria)}
+                    aria-pressed={isSelected}
+                    className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                      isSelected
+                        ? "bg-teal-700 text-white"
+                        : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
+                    }`}
+                  >
+                    {category.icon} {category.label} · {expenseCountByCategory.get(category.categoria) ?? 0}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {categorySummaries.map((category) => {
+                const isSelected = activeCategoryFilter === category.categoria;
+                const categoryExpenseCount = expenseCountByCategory.get(category.categoria) ?? 0;
+
+                return (
+                  <button
+                    key={category.categoria}
+                    type="button"
+                    onClick={() => setSelectedCategory(category.categoria)}
+                    aria-pressed={isSelected}
+                    className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
+                      isSelected
+                        ? "border-teal-300 bg-teal-50 shadow-[0_12px_28px_rgba(13,148,136,0.12)]"
+                        : "border-stone-200 bg-white/80 hover:border-stone-300"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3 text-sm">
+                      <div className="min-w-0">
+                        <span className="block truncate font-semibold text-stone-900">
+                          {category.icon} {category.label}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-stone-500">
+                          {categoryExpenseCount} gastos · {category.percentage}% del mes
+                        </span>
+                      </div>
+                      <span className="shrink-0 font-semibold text-stone-700">
+                        {formatCurrency(category.total)}
+                      </span>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200">
+                      <div
+                        className="h-full rounded-full bg-teal-500 transition-[width]"
+                        style={{
+                          width: `${Math.min(Math.max(category.percentage, 6), 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-5 rounded-[1.4rem] border border-stone-200 bg-stone-50 px-4 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-600">
+                  Gastos filtrados
+                </h3>
+                <span className="text-xs font-medium text-stone-500">
+                  {filteredExpenses.length}
+                </span>
               </div>
-            ))}
-          </div>
+
+              {filteredExpenses.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {filteredExpenses.map((expense) => (
+                    <article
+                      key={expense._id}
+                      className="rounded-[1.1rem] border border-white bg-white px-3 py-3 shadow-[0_8px_22px_rgba(28,25,23,0.06)]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
+                            {formatExpenseDate(expense.fecha)} · {expense.pagadoPorDetalle?.nombre ?? findUserName(payload.users, expense.pagadoPor)}
+                          </p>
+                          <h4 className="mt-1 truncate text-sm font-semibold text-stone-950">
+                            {expense.descripcion}
+                          </h4>
+                        </div>
+                        <strong className="shrink-0 text-sm font-semibold text-stone-950">
+                          {formatCurrency(expense.monto)}
+                        </strong>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 rounded-[1.1rem] border border-dashed border-stone-300 px-4 py-5 text-sm text-stone-500">
+                  Sin gastos para este filtro.
+                </p>
+              )}
+            </div>
+          </>
         ) : (
           <p className="mt-4 text-sm text-stone-600">Sin categorías registradas.</p>
+        )}
+      </section>
+
+      <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-stone-950">
+              Estadísticas
+            </h2>
+            <p className="mt-1 text-sm text-stone-500">
+              {selectedCategoryLabel} · {formatMonthLabel(payload.currentMonth)}
+            </p>
+          </div>
+          <span className="rounded-full bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800">
+            {filteredExpenses.length} gastos
+          </span>
+        </div>
+
+        {filteredExpenses.length > 0 ? (
+          <>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <div className="rounded-[1.2rem] bg-stone-100 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                  promedio
+                </p>
+                <p className="mt-1 text-sm font-semibold text-stone-950">
+                  {formatCurrency(averageExpense)}
+                </p>
+              </div>
+              <div className="rounded-[1.2rem] bg-teal-50 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-teal-700">
+                  día más caro
+                </p>
+                <p className="mt-1 truncate text-sm font-semibold text-teal-950">
+                  {biggestDay?.label ?? "-"}
+                </p>
+                <p className="text-xs text-teal-700">
+                  {biggestDay ? formatCurrency(biggestDay.total) : ""}
+                </p>
+              </div>
+              <div className="rounded-[1.2rem] bg-rose-50 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-rose-700">
+                  mayor gasto
+                </p>
+                <p className="mt-1 truncate text-sm font-semibold text-rose-950">
+                  {biggestExpense?.descripcion ?? "-"}
+                </p>
+                <p className="text-xs text-rose-700">
+                  {biggestExpense ? formatCurrency(biggestExpense.monto) : ""}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[1.4rem] border border-stone-200 bg-stone-50 px-4 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-600">
+                  Concentración
+                </h3>
+                <span className="text-xs font-medium text-stone-500">
+                  top 3 · {topThreeShare}%
+                </span>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <p className="text-sm leading-6 text-stone-700">
+                  {biggestExpense
+                    ? `${biggestExpense.descripcion} representa ${biggestExpenseShare}% de este filtro.`
+                    : "Sin gastos destacados todavía."}
+                </p>
+                <div className="h-2.5 overflow-hidden rounded-full bg-white">
+                  <div
+                    className="h-full rounded-full bg-teal-500 transition-[width]"
+                    style={{ width: `${Math.min(Math.max(topThreeShare, 6), 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-stone-500">
+                  Los 3 gastos más grandes suman {formatCurrency(topThreeTotal)}.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[1.4rem] border border-stone-200 bg-white/80 px-4 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-600">
+                  Gastos más grandes
+                </h3>
+                <span className="text-xs font-medium text-stone-500">
+                  top {biggestExpenses.length}
+                </span>
+              </div>
+
+              <div className="mt-3 divide-y divide-stone-100">
+                {biggestExpenses.map((expense) => (
+                  <div key={expense._id} className="flex items-center justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-stone-950">
+                        {expense.descripcion}
+                      </p>
+                      <p className="text-xs text-stone-500">
+                        {formatExpenseDate(expense.fecha)} · {expense.pagadoPorDetalle?.nombre ?? findUserName(payload.users, expense.pagadoPor)}
+                      </p>
+                    </div>
+                    <strong className="shrink-0 text-sm font-semibold text-stone-950">
+                      {formatCurrency(expense.monto)}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <p className="mt-4 rounded-[1.4rem] border border-dashed border-stone-300 px-4 py-8 text-center text-sm text-stone-500">
+            Sin gastos para calcular estadísticas.
+          </p>
         )}
       </section>
 
