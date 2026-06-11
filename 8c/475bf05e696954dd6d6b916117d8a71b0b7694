@@ -1,0 +1,45 @@
+src/components/expenses/StatsScreen.tsx
+  s_5edc7a6ec43dce::t_68e2708e2332b7 627,1064,1066,1075,1097
+  s_dcd2b4b46bd6c7::t_6d0b5f0e51a387 140-142,144-148,150-154,162-169,187,192-196,204-205,213,218,220-221,224-226,228-231,240,249-250,256,259,272-296
+  s_5edc7a6ec43dce::t_ade4b2b5108b3a 623-626,628-632
+  s_dcd2b4b46bd6c7::t_3b0f90ae5f7204 155
+  s_dcd2b4b46bd6c7::t_a2c73833d56d3c 768-805
+  s_5edc7a6ec43dce::t_e6291672962f41 1044-1055,1058-1063,1065,1067-1074,1076-1096,1098-1169,1171-1192,1195-1235,1237-1238,1240-1242,1259-1289,1291-1293
+  s_dcd2b4b46bd6c7::t_4b53b10f070d64 139,143,149,156-161,170-186,188-191,197-203,206-212,214-217,219,222-223,227,232-239,241-248,251-255,257-258,260,262-271,297-298,312-313
+  s_dcd2b4b46bd6c7::t_b7a18bfa1321bb 355-356,525-529,531,533-535,547-550
+  s_dcd2b4b46bd6c7::t_18a2d2d91342c1 530,532,536-546
+  s_dcd2b4b46bd6c7::t_d1c669274b47cf 261
+  s_5edc7a6ec43dce::t_5ed60666df0df2 10,34-41,86-136
+  s_5edc7a6ec43dce::t_c54249563e9bae 301,370-373,379-389,391,394-397,399,401-402,404-422
+  s_5edc7a6ec43dce::t_5bb381ac628a72 1193-1194,1236,1239,1243-1249,1252,1255-1257
+  s_5edc7a6ec43dce::t_e414da415170a2 633-641,684-688
+  s_5edc7a6ec43dce::t_70c6b0ae33efc3 374-378,390,392-393,398,400,403
+src/components/expenses/CompareStatsScreen.tsx
+  s_5edc7a6ec43dce::t_fb5f72c3699ee0 1-437
+src/app/(dashboard)/estadisticas/page.tsx
+  s_5edc7a6ec43dce::t_6ddbdc1cf53a8e 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "8c475bf05e696954dd6d6b916117d8a71b0b7694",
+  "prompts": {},
+  "sessions": {
+    "s_5edc7a6ec43dce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eb8d1-e4c4-7140-953b-f2d2f4c2789f",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    },
+    "s_dcd2b4b46bd6c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eac71-d3b9-75a2-a29b-6ec80168343e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
