@@ -10,7 +10,19 @@ import {
   EXPENSE_CATEGORY_VALUES,
   isExpenseCategoryValue,
 } from "@/lib/expense-categories";
+import { normalizeSpreadsheetUrl } from "@/lib/google-sheets-format";
 import { Household } from "@/models/Household";
+import { User } from "@/models/User";
+
+function normalizeTemplateSheetName(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+
+  return normalized ? normalized.slice(0, 100) : null;
+}
 
 export const runtime = "nodejs";
 
@@ -47,10 +59,12 @@ export async function PATCH(request: NextRequest) {
 
   const body = (await request.json().catch(() => null)) as
     | {
-        nombre?: unknown;
-        user1Percentage?: unknown;
-        enabledCategories?: unknown;
-      }
+      nombre?: unknown;
+      user1Percentage?: unknown;
+      enabledCategories?: unknown;
+      spreadsheetUrl?: unknown;
+      templateSheetName?: unknown;
+    }
     | null;
 
   const user1Percentage =
@@ -58,6 +72,15 @@ export async function PATCH(request: NextRequest) {
       ? normalizePercentage(body.user1Percentage)
       : undefined;
   const nombre = typeof body?.nombre === "string" ? body.nombre.trim() : undefined;
+  const templateSheetName = normalizeTemplateSheetName(body?.templateSheetName);
+  const spreadsheetConfig =
+    body && Object.hasOwn(body, "spreadsheetUrl")
+      ? typeof body.spreadsheetUrl === "string"
+        ? normalizeSpreadsheetUrl(body.spreadsheetUrl)
+        : body.spreadsheetUrl === null
+          ? null
+          : undefined
+      : undefined;
 
   const enabledCategories =
     body && Object.hasOwn(body, "enabledCategories")
@@ -102,6 +125,20 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
+  if (body && Object.hasOwn(body, "spreadsheetUrl") && spreadsheetConfig === undefined) {
+    return NextResponse.json(
+      { error: "Pegá una URL válida de Google Sheets." },
+      { status: 400 }
+    );
+  }
+
+  if (templateSheetName !== undefined && templateSheetName !== null && templateSheetName.length < 2) {
+    return NextResponse.json(
+      { error: "El nombre de la hoja plantilla debe tener al menos 2 caracteres." },
+      { status: 400 }
+    );
+  }
+
   const updates: Record<string, unknown> = {};
 
   if (nombre !== undefined) {
@@ -119,14 +156,42 @@ export async function PATCH(request: NextRequest) {
     updates["porcentajesDefecto.user2"] = user2Percentage;
   }
 
+  await dbConnect();
+
+  if (spreadsheetConfig) {
+    const currentUser = await User.findById(session.sub)
+      .select("_id googleAuth.email")
+      .lean();
+
+    if (!currentUser?.googleAuth?.email) {
+      return NextResponse.json(
+        { error: "Conectá tu cuenta de Google antes de configurar la exportación." },
+        { status: 409 }
+      );
+    }
+
+    updates["googleSheets.spreadsheetId"] = spreadsheetConfig.spreadsheetId;
+    updates["googleSheets.spreadsheetUrl"] = spreadsheetConfig.spreadsheetUrl;
+    updates["googleSheets.exportOwnerUserId"] = session.sub;
+    updates["googleSheets.lastExportError"] = null;
+  } else if (spreadsheetConfig === null) {
+    updates["googleSheets.spreadsheetId"] = null;
+    updates["googleSheets.spreadsheetUrl"] = null;
+    updates["googleSheets.templateSheetName"] = null;
+    updates["googleSheets.exportOwnerUserId"] = null;
+    updates["googleSheets.lastExportError"] = null;
+  }
+
+  if (templateSheetName !== undefined) {
+    updates["googleSheets.templateSheetName"] = templateSheetName;
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json(
       { error: "No recibimos cambios para guardar." },
       { status: 400 }
     );
   }
-
-  await dbConnect();
 
   const household = await Household.findByIdAndUpdate(
     session.hogarId,
@@ -138,7 +203,9 @@ export async function PATCH(request: NextRequest) {
       runValidators: true,
     }
   )
-    .select("_id nombre codigoInvitacion mesActivo porcentajesDefecto categoriasHabilitadas")
+    .select(
+      "_id nombre codigoInvitacion mesActivo porcentajesDefecto categoriasHabilitadas googleSheets"
+    )
     .lean();
 
   if (!household) {
@@ -158,6 +225,17 @@ export async function PATCH(request: NextRequest) {
       porcentajesDefecto: {
         user1: household.porcentajesDefecto.user1,
         user2: household.porcentajesDefecto.user2,
+      },
+      googleSheets: {
+        spreadsheetId: household.googleSheets?.spreadsheetId ?? null,
+        spreadsheetUrl: household.googleSheets?.spreadsheetUrl ?? null,
+        templateSheetName: household.googleSheets?.templateSheetName ?? null,
+        exportOwnerUserId: household.googleSheets?.exportOwnerUserId
+          ? household.googleSheets.exportOwnerUserId.toString()
+          : null,
+        lastExportedAt: household.googleSheets?.lastExportedAt?.toISOString() ?? null,
+        lastExportedSheetName: household.googleSheets?.lastExportedSheetName ?? null,
+        lastExportError: household.googleSheets?.lastExportError ?? null,
       },
     },
   });

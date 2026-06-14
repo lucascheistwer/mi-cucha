@@ -49,6 +49,15 @@ function mapHousehold(household: {
   mesActivo?: string;
   categoriasHabilitadas?: string[];
   porcentajesDefecto: { user1: number; user2: number };
+  googleSheets?: {
+    spreadsheetId?: string | null;
+    spreadsheetUrl?: string | null;
+    templateSheetName?: string | null;
+    exportOwnerUserId?: { toString(): string } | string | null;
+    lastExportedAt?: Date | null;
+    lastExportedSheetName?: string | null;
+    lastExportError?: string | null;
+  };
 }): HouseholdSummary {
   const activeMonth = household.mesActivo && isValidMonthKey(household.mesActivo)
     ? household.mesActivo
@@ -63,6 +72,17 @@ function mapHousehold(household: {
     porcentajesDefecto: {
       user1: household.porcentajesDefecto.user1,
       user2: household.porcentajesDefecto.user2,
+    },
+    googleSheets: {
+      spreadsheetId: household.googleSheets?.spreadsheetId ?? null,
+      spreadsheetUrl: household.googleSheets?.spreadsheetUrl ?? null,
+      templateSheetName: household.googleSheets?.templateSheetName ?? null,
+      exportOwnerUserId: household.googleSheets?.exportOwnerUserId
+        ? household.googleSheets.exportOwnerUserId.toString()
+        : null,
+      lastExportedAt: household.googleSheets?.lastExportedAt?.toISOString() ?? null,
+      lastExportedSheetName: household.googleSheets?.lastExportedSheetName ?? null,
+      lastExportError: household.googleSheets?.lastExportError ?? null,
     },
   };
 }
@@ -132,7 +152,9 @@ export async function buildMonthlyDashboardPayload(input: {
   requestedMonth?: string | null;
 }): Promise<DashboardPayloadResult> {
   const household = await Household.findById(input.hogarId)
-    .select("_id nombre codigoInvitacion mesActivo porcentajesDefecto categoriasHabilitadas")
+    .select(
+      "_id nombre codigoInvitacion mesActivo porcentajesDefecto categoriasHabilitadas googleSheets"
+    )
     .lean();
 
   if (!household) {
@@ -155,7 +177,10 @@ export async function buildMonthlyDashboardPayload(input: {
   }
 
   const [users, expenses, payments, histories, expenseMonths, paymentMonths] = await Promise.all([
-    User.find({ hogarId: input.hogarId }).select("_id nombre username").sort({ nombre: 1 }).lean(),
+    User.find({ hogarId: input.hogarId })
+      .select("_id nombre username googleAuth.email googleAuth.connectedAt")
+      .sort({ nombre: 1 })
+      .lean(),
     Expense.find({ hogarId: input.hogarId, mesLiquidacion: selectedMonth })
       .sort({ fecha: -1, createdAt: -1 })
       .lean(),
@@ -182,6 +207,7 @@ export async function buildMonthlyDashboardPayload(input: {
   );
 
   const mappedUsers = Array.from(userMap.values());
+  const currentUser = users.find((user) => user._id.toString() === input.currentUserId);
   const mappedExpenses = mapExpenses(expenses, userMap);
   const mappedPayments = mapPayments(payments, userMap);
   const summary = buildDashboardSummary({
@@ -231,6 +257,13 @@ export async function buildMonthlyDashboardPayload(input: {
       users: mappedUsers,
       expenses: mappedExpenses,
       payments: mappedPayments,
+      currentUserIntegrations: {
+        google: {
+          isConnected: Boolean(currentUser?.googleAuth?.email),
+          email: currentUser?.googleAuth?.email ?? null,
+          connectedAt: currentUser?.googleAuth?.connectedAt?.toISOString() ?? null,
+        },
+      },
     },
   };
 }

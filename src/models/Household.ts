@@ -13,6 +13,42 @@ const defaultPercentagesSchema = new Schema(
   { _id: false }
 );
 
+const googleSheetsConfigSchema = new Schema(
+  {
+    spreadsheetId: {
+      type: String,
+      trim: true,
+    },
+    spreadsheetUrl: {
+      type: String,
+      trim: true,
+    },
+    templateSheetName: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    exportOwnerUserId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+    lastExportedAt: {
+      type: Date,
+    },
+    lastExportedSheetName: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    lastExportError: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+    },
+  },
+  { _id: false }
+);
+
 const householdSchema = new Schema(
   {
     nombre: {
@@ -62,6 +98,10 @@ const householdSchema = new Schema(
       required: true,
       match: /^\d{4}-(0[1-9]|1[0-2])$/,
       default: () => getMonthKey(new Date()),
+    },
+    googleSheets: {
+      type: googleSheetsConfigSchema,
+      default: () => ({}),
     },
   },
   {

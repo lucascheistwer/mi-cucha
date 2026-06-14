@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { formatExpenseDate, formatMonthLabel, getTodayInputValue } from "@/lib/date-helpers";
+import { buildSheetsExport } from "@/lib/google-sheets-format";
 import { formatCurrency } from "@/lib/utils";
 import type {
   ActiveDebtSettlement,
@@ -134,166 +135,6 @@ function buildDailySpendSummary(expenses: ExpenseListItem[]) {
       total: daySummary.total,
       count: daySummary.count,
     }));
-}
-
-function formatSheetDate(value: string) {
-  const [year, month, day] = value.slice(0, 10).split("-");
-
-  return `${Number(day)}/${month}/${year}`;
-}
-
-function formatSheetCurrency(value: number | null | undefined) {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  return new Intl.NumberFormat("es-AR", {
-    currency: "ARS",
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
-    style: "currency",
-  }).format(value).replace(/\s/g, "");
-}
-
-function escapeSheetCell(value: string | number | null | undefined) {
-  return `${value ?? ""}`.replace(/\t/g, " ").replace(/\r?\n/g, " ");
-}
-
-function escapeHtmlCell(value: string | number | null | undefined) {
-  return `${value ?? ""}`
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function buildSheetsExport(payload: ExpensesDashboardPayload) {
-  const categoryLabels = new Map(
-    payload.summary.categorySummary.map((category) => [category.categoria, category.label])
-  );
-  const sortedExpenses = [...payload.expenses].sort((firstExpense, secondExpense) => {
-    const dateDiff =
-      new Date(firstExpense.fecha).getTime() - new Date(secondExpense.fecha).getTime();
-
-    return dateDiff || firstExpense.descripcion.localeCompare(secondExpense.descripcion);
-  });
-  const sortedPayments = [...payload.payments].sort((firstPayment, secondPayment) => {
-    const dateDiff =
-      new Date(firstPayment.fecha).getTime() - new Date(secondPayment.fecha).getTime();
-
-    return dateDiff || firstPayment.monto - secondPayment.monto;
-  });
-  const rows: Array<Array<string | number | null | undefined>> = [];
-  const styledCells = new Set<string>();
-
-  function setCell(rowIndex: number, columnIndex: number, value: string | number | null | undefined) {
-    rows[rowIndex] ??= [];
-    rows[rowIndex][columnIndex] = value;
-  }
-
-  function setStyledCell(rowIndex: number, columnIndex: number, value: string | number | null | undefined) {
-    setCell(rowIndex, columnIndex, value);
-    styledCells.add(`${rowIndex}:${columnIndex}`);
-  }
-
-  setCell(0, 0, "Gasto");
-  setCell(0, 1, "Categoría");
-  setCell(0, 2, "Fecha");
-  setCell(0, 3, "Monto");
-  setCell(0, 4, "Pagado Por");
-  setStyledCell(2, 6, "Total");
-  setStyledCell(2, 7, formatSheetCurrency(payload.summary.gastoTotal));
-
-  sortedExpenses.forEach((expense, index) => {
-    const rowIndex = index + 1;
-
-    setCell(rowIndex, 0, expense.descripcion);
-    setCell(rowIndex, 1, categoryLabels.get(expense.categoria) ?? expense.categoria);
-    setCell(rowIndex, 2, formatSheetDate(expense.fecha));
-    setCell(rowIndex, 3, formatSheetCurrency(expense.monto));
-    setCell(rowIndex, 4, expense.pagadoPorDetalle?.nombre ?? findUserName(payload.users, expense.pagadoPor));
-  });
-
-  payload.summary.spendingByUser.forEach((user, index) => {
-    const rowIndex = index * 2 + 4;
-
-    setStyledCell(rowIndex, 6, `Pagado por ${user.nombre}`);
-    setStyledCell(rowIndex, 7, formatSheetCurrency(user.totalPagado));
-  });
-
-  const saldoRowIndex = Math.max(payload.summary.spendingByUser.length * 2 + 4, 8);
-  setStyledCell(saldoRowIndex, 6, "Saldo del Mes");
-  setStyledCell(saldoRowIndex, 7, formatSheetCurrency(payload.summary.activeDebt.settlement?.amount ?? 0));
-
-  const paymentsHeaderRowIndex = saldoRowIndex + 4;
-  setStyledCell(paymentsHeaderRowIndex, 6, "Fecha");
-  setStyledCell(paymentsHeaderRowIndex, 7, "Pago de Saldo");
-  setStyledCell(paymentsHeaderRowIndex, 8, "Quién");
-
-  if (sortedPayments.length === 0) {
-    setCell(paymentsHeaderRowIndex + 1, 6, "Sin pagos");
-  } else {
-    sortedPayments.forEach((payment, index) => {
-      const rowIndex = paymentsHeaderRowIndex + index + 1;
-
-      setCell(rowIndex, 6, formatSheetDate(payment.fecha));
-      setCell(rowIndex, 7, formatSheetCurrency(payment.monto));
-      setCell(rowIndex, 8, payment.fromUser?.nombre ?? findUserName(payload.users, payment.fromUserId));
-    });
-  }
-
-  const statusRowIndex = paymentsHeaderRowIndex + Math.max(sortedPayments.length, 1) + 3;
-  setCell(statusRowIndex, 6, payload.summary.activeDebt.message);
-
-  const categoryHeaderRowIndex = statusRowIndex + 3;
-  setStyledCell(categoryHeaderRowIndex, 6, "Categoría");
-  setStyledCell(categoryHeaderRowIndex, 7, "Gasto Total");
-
-  payload.summary.categorySummary.forEach((category, index) => {
-    const rowIndex = categoryHeaderRowIndex + index + 1;
-
-    setCell(rowIndex, 6, category.label);
-    setCell(rowIndex, 7, formatSheetCurrency(category.total));
-  });
-
-  const text = rows
-    .map((row) => {
-      const lastColumnIndex = row.reduce<number>(
-        (lastIndex, cell, index) =>
-          cell === undefined || cell === null || cell === "" ? lastIndex : index,
-        0
-      );
-
-      return Array.from({ length: lastColumnIndex + 1 }, (_, index) =>
-        escapeSheetCell(row[index])
-      ).join("\t");
-    })
-    .join("\n");
-  const htmlRows = rows
-    .map((row, rowIndex) => {
-      const lastColumnIndex = row.reduce<number>(
-        (lastIndex, cell, index) =>
-          cell === undefined || cell === null || cell === "" ? lastIndex : index,
-        0
-      );
-      const cells = Array.from({ length: lastColumnIndex + 1 }, (_, columnIndex) => {
-        const isStyled = styledCells.has(`${rowIndex}:${columnIndex}`) || rowIndex === 0;
-        const tagName = isStyled ? "th" : "td";
-        const style = isStyled
-          ? "border:1px solid #444;background:#f1f5f9;font-weight:700;padding:4px 8px;text-align:left;"
-          : "border:1px solid #d4d4d4;padding:4px 8px;text-align:left;";
-
-        return `<${tagName} style="${style}">${escapeHtmlCell(row[columnIndex])}</${tagName}>`;
-      }).join("");
-
-      return `<tr>${cells}</tr>`;
-    })
-    .join("");
-
-  return {
-    html: `<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:10pt;">${htmlRows}</table>`,
-    text,
-  };
 }
 
 export function StatsScreen() {
@@ -494,6 +335,11 @@ export function StatsScreen() {
         error?: string;
         activeMonth?: string;
         outstandingDebt?: ActiveDebtSettlement;
+        googleSheetsExport?: {
+          ok: boolean;
+          error?: string;
+          sheetTitle?: string;
+        } | null;
       }>(response);
 
       if (!response.ok) {
@@ -518,6 +364,15 @@ export function StatsScreen() {
       }
 
       closeFinalizeDialog();
+      if (data?.googleSheetsExport?.ok && data.googleSheetsExport.sheetTitle) {
+        setSheetExportFeedback(
+          `Cierre exportado a Google Sheets en la hoja ${data.googleSheetsExport.sheetTitle}.`
+        );
+      } else if (data?.googleSheetsExport?.ok === false) {
+        setSheetExportFeedback(
+          data.googleSheetsExport.error ?? "El mes se cerró, pero la exportación a Google Sheets falló."
+        );
+      }
       setSelectedMonth(data?.activeMonth ?? null);
     });
   }

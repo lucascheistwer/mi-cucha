@@ -32,9 +32,28 @@ export function ConfigScreen() {
   const [enabledCategories, setEnabledCategories] = useState<ExpenseCategoryValue[]>([
     ...EXPENSE_CATEGORY_VALUES,
   ]);
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
+  const [templateSheetName, setTemplateSheetName] = useState("");
   const [saveError, setSaveError] = useState("");
   const [saveFeedback, setSaveFeedback] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [googleFeedback, setGoogleFeedback] = useState(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+
+    const status = new URLSearchParams(window.location.search).get("google");
+
+    if (status === "connected") {
+      return "Google quedó conectado. Ya podés guardar el spreadsheet.";
+    }
+
+    if (status === "error") {
+      return "No pudimos completar la conexión con Google.";
+    }
+
+    return "";
+  });
   const [isSaving, startSavingTransition] = useTransition();
 
   useEffect(() => {
@@ -61,6 +80,8 @@ export function ConfigScreen() {
       setHouseholdName(data.household.nombre);
       setUser1Percentage(data.household.porcentajesDefecto.user1);
       setEnabledCategories(data.household.categoriasHabilitadas);
+      setSpreadsheetUrl(data.household.googleSheets.spreadsheetUrl ?? "");
+      setTemplateSheetName(data.household.googleSheets.templateSheetName ?? "");
     }
 
     void loadSettings();
@@ -79,6 +100,8 @@ export function ConfigScreen() {
     () => new Set<string>(enabledCategories),
     [enabledCategories]
   );
+  const googleConnection = state.payload?.currentUserIntegrations.google ?? null;
+  const googleSheets = state.payload?.household.googleSheets ?? null;
 
   async function handleSaveSettings() {
     if (!state.payload) {
@@ -97,6 +120,8 @@ export function ConfigScreen() {
         body: JSON.stringify({
           nombre: householdName,
           enabledCategories,
+          spreadsheetUrl,
+          templateSheetName,
           ...(canConfigureSplit ? { user1Percentage } : {}),
         }),
       });
@@ -166,6 +191,50 @@ export function ConfigScreen() {
         `Copialo manualmente: ${state.payload.household.inviteCode}`
       );
     }
+  }
+
+  async function handleDisconnectGoogle() {
+    setSaveError("");
+    setGoogleFeedback("");
+
+    const response = await fetch("/api/google/disconnect", {
+      method: "DELETE",
+    });
+    const data = await parseJson<{ error?: string }>(response);
+
+    if (!response.ok) {
+      setSaveError(data?.error ?? "No pudimos desconectar Google.");
+      return;
+    }
+
+    setState((currentState) => {
+      if (!currentState.payload) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        payload: {
+          ...currentState.payload,
+          currentUserIntegrations: {
+            google: {
+              isConnected: false,
+              email: null,
+              connectedAt: null,
+            },
+          },
+          household: {
+            ...currentState.payload.household,
+            googleSheets: {
+              ...currentState.payload.household.googleSheets,
+              exportOwnerUserId: null,
+              lastExportError: "La conexión de Google fue removida.",
+            },
+          },
+        },
+      };
+    });
+    setGoogleFeedback("Se desconectó la cuenta de Google.");
   }
 
   if (state.isLoading) {
@@ -247,6 +316,90 @@ export function ConfigScreen() {
             </p>
             {copyFeedback ? (
               <p className="mt-3 text-sm text-teal-800">{copyFeedback}</p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-stone-950">
+              Google Sheets
+            </h2>
+            <p className="mt-2 text-sm text-stone-600">
+              La cucha puede exportar el cierre mensual directo a un spreadsheet.
+            </p>
+          </div>
+
+          {googleConnection?.isConnected ? (
+            <button
+              type="button"
+              onClick={handleDisconnectGoogle}
+              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
+            >
+              Desconectar
+            </button>
+          ) : (
+            <a
+              href="/api/google/connect"
+              className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
+            >
+              Conectar Google
+            </a>
+          )}
+        </div>
+
+        <div className="mt-4 space-y-4">
+          <div className="rounded-[1.4rem] bg-stone-100 px-4 py-4 text-sm text-stone-700">
+            {googleConnection?.isConnected ? (
+              <p>
+                Conectado como <strong>{googleConnection.email}</strong>
+              </p>
+            ) : (
+              <p>Conectá tu cuenta de Google para habilitar la exportación automática.</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="spreadsheetUrl" className="text-sm font-medium text-stone-700">
+              URL del spreadsheet
+            </label>
+            <input
+              id="spreadsheetUrl"
+              value={spreadsheetUrl}
+              onChange={(event) => setSpreadsheetUrl(event.target.value)}
+              placeholder="https://docs.google.com/spreadsheets/d/..."
+              className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
+              disabled={isSaving}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="templateSheetName" className="text-sm font-medium text-stone-700">
+              Hoja plantilla
+            </label>
+            <input
+              id="templateSheetName"
+              value={templateSheetName}
+              onChange={(event) => setTemplateSheetName(event.target.value)}
+              placeholder="Resumen Base"
+              className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
+              disabled={isSaving}
+            />
+          </div>
+
+          <div className="rounded-[1.4rem] bg-stone-100 px-4 py-4 text-sm text-stone-700">
+            {googleSheets?.lastExportedSheetName ? (
+              <p>
+                Última hoja creada: <strong>{googleSheets.lastExportedSheetName}</strong>
+              </p>
+            ) : (
+              <p>Todavía no hay exportaciones automáticas registradas.</p>
+            )}
+
+            {googleSheets?.lastExportError ? (
+              <p className="mt-2 text-rose-700">{googleSheets.lastExportError}</p>
             ) : null}
           </div>
         </div>
@@ -352,6 +505,10 @@ export function ConfigScreen() {
 
       {saveFeedback ? (
         <p className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-800">{saveFeedback}</p>
+      ) : null}
+
+      {googleFeedback ? (
+        <p className="rounded-2xl bg-sky-50 px-4 py-3 text-sm text-sky-800">{googleFeedback}</p>
       ) : null}
 
       <button

@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, getExpiredSessionCookie, verifySessionToken } from "@/lib/auth";
 import { addMonthsToMonthKey, getMonthKey } from "@/lib/date-helpers";
 import { dbConnect } from "@/lib/dbConnect";
+import { exportMonthToGoogleSheets } from "@/lib/google-sheets-export";
 import { buildMonthlyDashboardPayload, syncHistorySnapshot } from "@/lib/monthly-dashboard";
 import { Household } from "@/models/Household";
+import { User } from "@/models/User";
 
 export const runtime = "nodejs";
 
@@ -33,7 +35,7 @@ export async function POST(request: NextRequest) {
   await dbConnect();
 
   const household = await Household.findById(session.hogarId)
-    .select("_id mesActivo")
+    .select("_id mesActivo googleSheets")
     .lean();
 
   if (!household) {
@@ -100,9 +102,67 @@ export async function POST(request: NextRequest) {
     }
   );
 
+  let googleSheetsExport: {
+    ok: boolean;
+    error?: string;
+    sheetTitle?: string;
+  } | null = null;
+
+  if (household.googleSheets?.spreadsheetId && household.googleSheets.exportOwnerUserId) {
+    try {
+      const exportOwner = await User.findOne({
+        _id: household.googleSheets.exportOwnerUserId,
+        hogarId: session.hogarId,
+      }).select(
+        "_id googleAuth.email +googleAuth.accessTokenEncrypted +googleAuth.refreshTokenEncrypted googleAuth.scope googleAuth.tokenType googleAuth.expiryDate googleAuth.connectedAt"
+      );
+
+      if (!exportOwner?.googleAuth?.email) {
+        throw new Error("La cuenta conectada para exportar a Google Sheets ya no está disponible.");
+      }
+
+      const exportResult = await exportMonthToGoogleSheets({
+        payload,
+        spreadsheetId: household.googleSheets.spreadsheetId,
+        templateSheetName: household.googleSheets.templateSheetName ?? null,
+        user: exportOwner,
+      });
+
+      await Household.findByIdAndUpdate(session.hogarId, {
+        $set: {
+          "googleSheets.lastExportedAt": exportResult.exportedAt,
+          "googleSheets.lastExportedSheetName": exportResult.sheetTitle,
+          "googleSheets.lastExportError": null,
+        },
+      });
+
+      googleSheetsExport = {
+        ok: true,
+        sheetTitle: exportResult.sheetTitle,
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "No pudimos exportar el cierre mensual a Google Sheets.";
+
+      await Household.findByIdAndUpdate(session.hogarId, {
+        $set: {
+          "googleSheets.lastExportError": message,
+        },
+      });
+
+      googleSheetsExport = {
+        ok: false,
+        error: message,
+      };
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     finalizedMonth: activeMonth,
     activeMonth: nextMonth,
+    googleSheetsExport,
   });
 }

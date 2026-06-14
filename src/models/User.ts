@@ -9,6 +9,40 @@ import {
   type Model,
 } from "mongoose";
 
+const googleAuthSchema = new Schema(
+  {
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
+    accessTokenEncrypted: {
+      type: String,
+      select: false,
+    },
+    refreshTokenEncrypted: {
+      type: String,
+      select: false,
+    },
+    scope: {
+      type: [String],
+      default: [],
+    },
+    tokenType: {
+      type: String,
+      trim: true,
+    },
+    expiryDate: {
+      type: Date,
+    },
+    connectedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false }
+);
+
 const userSchema = new Schema(
   {
     username: {
@@ -38,6 +72,10 @@ const userSchema = new Schema(
       ref: "Household",
       required: true,
       index: true,
+    },
+    googleAuth: {
+      type: googleAuthSchema,
+      default: undefined,
     },
   },
   {

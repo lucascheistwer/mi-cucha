@@ -57,6 +57,23 @@ export interface HouseholdSummary {
     user1: number;
     user2: number;
   };
+  googleSheets: {
+    spreadsheetId: string | null;
+    spreadsheetUrl: string | null;
+    templateSheetName: string | null;
+    exportOwnerUserId: string | null;
+    lastExportedAt: string | null;
+    lastExportedSheetName: string | null;
+    lastExportError: string | null;
+  };
+}
+
+export interface CurrentUserIntegrations {
+  google: {
+    isConnected: boolean;
+    email: string | null;
+    connectedAt: string | null;
+  };
 }
 
 export interface UserSpendSummary extends HouseholdUserOption {
@@ -130,4 +147,5 @@ export interface ExpensesDashboardPayload {
   users: HouseholdUserOption[];
   expenses: ExpenseListItem[];
   payments: PaymentListItem[];
+  currentUserIntegrations: CurrentUserIntegrations;
 }
