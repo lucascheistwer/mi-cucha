@@ -1,0 +1,66 @@
+src/app/api/household/settings/route.ts
+  s_469ee857576d2e::t_c0a3fe5f5b30b8 13
+  s_469ee857576d2e::t_fad570dd1c5021 15-25,62-67,75-83,128-141,159-188,206-208,229-239,242
+src/components/expenses/ConfigScreen.tsx
+  s_469ee857576d2e::t_98ade73de88fc5 40-56
+  s_469ee857576d2e::t_56bcfc5e3ffc42 35-36,83-84,103-104,123-124,196-239,324-407,510-513,524
+src/components/expenses/StatsScreen.tsx
+  s_469ee857576d2e::t_9911e9cf89cb61 338-342,367-375
+  s_469ee857576d2e::t_c0a3fe5f5b30b8 7
+src/lib/google-sheets-format.ts
+  s_469ee857576d2e::t_c0a3fe5f5b30b8 1-42,44-94,96-100,106-112,114-133,136-137,139-153,162-201,216-241
+  s_469ee857576d2e::t_ea2a5adc1bca76 43,95,101-105,113,134-135,138,155-161,208-213
+  s_469ee857576d2e::t_dcba38c58eef60 154,202-207,214-215
+src/lib/google-oauth.ts
+  s_469ee857576d2e::t_3857b5fdf6d210 1-157
+src/app/api/google/disconnect/route.ts
+  s_469ee857576d2e::t_66d0f8dc8aa0a4 1-47
+src/app/api/months/finalize/route.ts
+  s_469ee857576d2e::t_6ac88ff318a7e1 6,9,38,105-161,166,168
+src/lib/secure-store.ts
+  s_469ee857576d2e::t_3857b5fdf6d210 1-45
+src/app/api/google/connect/route.ts
+  s_469ee857576d2e::t_66d0f8dc8aa0a4 1-38
+src/models/User.ts
+  s_469ee857576d2e::t_87702c79e36d07 12-45,76-79,99
+src/lib/google-sheets-export.ts
+  s_469ee857576d2e::t_759a85a5a6873c 109-110,143-145,147,151-166,173-204,219-230,240,251,256-262,268
+  s_469ee857576d2e::t_6190164339ab2b 167-172,205-218,263
+  s_469ee857576d2e::t_34c9bc0d2b5ea9 42-47
+  s_469ee857576d2e::t_48b481f5433096 1,3-41,48-108,111-142,146,148-150,231-239,241-250,252-255,264-267,269-270
+  s_469ee857576d2e::t_c0a3fe5f5b30b8 2
+src/types/expense.ts
+  s_469ee857576d2e::t_84afd0dce707bf 60-76,150
+README.md
+  s_469ee857576d2e::t_28bf53cadf914e 32-53
+src/lib/monthly-dashboard.ts
+  s_469ee857576d2e::t_34c9bc0d2b5ea9 53-55,58-59
+  s_469ee857576d2e::t_9d04d885a438fb 56
+  s_469ee857576d2e::t_7d0496cfd09b38 57
+  s_469ee857576d2e::t_32da3c12edb84d 52,60,76-86,155-157,180-183,210,260-266,326
+src/app/api/google/callback/route.ts
+  s_469ee857576d2e::t_66d0f8dc8aa0a4 1-85
+src/models/Household.ts
+  s_469ee857576d2e::t_bca2a20548645e 16-51,102-105,117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "27442223acbb84dd472886003e7ccded18140827",
+  "prompts": {},
+  "humans": {
+    "h_4f59ee1b9f9c43": {
+      "author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  },
+  "sessions": {
+    "s_469ee857576d2e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ec308-14cf-7a43-a2b4-8b5062719217",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
