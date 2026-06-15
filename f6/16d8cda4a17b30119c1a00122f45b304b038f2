@@ -1,0 +1,30 @@
+src/components/expenses/ConfigScreen.tsx
+  s_2a22c52e2d0043::t_34b541b4e61ed6 40,241-251,356-360,362-363
+public/sw.js
+  s_2a22c52e2d0043::t_b2181343d0e2d8 2
+src/app/api/google/callback/route.ts
+  s_2a22c52e2d0043::t_34b541b4e61ed6 45,47,130-138
+src/app/api/google/connect/route.ts
+  s_2a22c52e2d0043::t_34b541b4e61ed6 29-30,43,51-61,71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "f616d8cda4a17b30119c1a00122f45b304b038f2",
+  "prompts": {},
+  "humans": {
+    "h_4f59ee1b9f9c43": {
+      "author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  },
+  "sessions": {
+    "s_2a22c52e2d0043": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eccc1-5357-7ea3-aef4-f215a337a32d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
