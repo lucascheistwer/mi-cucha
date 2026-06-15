@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     origin: request.nextUrl.origin,
     state,
   });
+  const googleOAuthUrl = new URL(redirectUrl);
   const response = NextResponse.redirect(redirectUrl);
   const stateCookieName = getGoogleOAuthCookieName();
 
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
     hasSessionCookie: Boolean(token),
     stateCookieName,
     statePreview: summarizeValue(state),
-    redirectUri: redirectUrl.searchParams.get("redirect_uri"),
+    redirectUri: googleOAuthUrl.searchParams.get("redirect_uri"),
     sameSite: "lax",
     secureCookie: process.env.NODE_ENV === "production",
     userAgent,
