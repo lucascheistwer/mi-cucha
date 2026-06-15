@@ -1,0 +1,26 @@
+src/app/api/google/connect/route.ts
+  s_2a22c52e2d0043::t_39579e47be546c 46,68
+public/sw.js
+  s_2a22c52e2d0043::t_29049ac66fbeef 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "d60679632340bbb1a93725f72de93e475236249a",
+  "prompts": {},
+  "humans": {
+    "h_4f59ee1b9f9c43": {
+      "author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  },
+  "sessions": {
+    "s_2a22c52e2d0043": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eccc1-5357-7ea3-aef4-f215a337a32d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
