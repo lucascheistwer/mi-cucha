@@ -101,8 +101,8 @@ export function QuickExpenseForm({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="monto" className="text-sm font-medium text-stone-700">
             Monto
           </label>
@@ -115,13 +115,13 @@ export function QuickExpenseForm({
             value={monto}
             onChange={(event) => setMonto(event.target.value)}
             placeholder="0"
-            className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
+            className="w-full min-w-0 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
             disabled={isSubmitting}
             required
           />
         </div>
 
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="fecha" className="text-sm font-medium text-stone-700">
             Fecha
           </label>
@@ -132,7 +132,7 @@ export function QuickExpenseForm({
             onChange={(event) => setFecha(event.target.value)}
             min={dateBounds.min}
             max={dateBounds.max}
-            className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
+            className="w-full min-w-0 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white sm:text-base"
             disabled={isSubmitting}
             required
           />

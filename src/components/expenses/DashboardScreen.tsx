@@ -7,6 +7,7 @@ import { withUpdatedDashboardSummary } from "@/lib/dashboard-summary";
 import { formatMonthLabel } from "@/lib/date-helpers";
 import { ExpenseList } from "@/components/expenses/ExpenseList";
 import { QuickExpenseForm } from "@/components/expenses/QuickExpenseForm";
+import type { ExpenseCategoryValue } from "@/lib/expense-categories";
 import type {
   ExpenseListItem,
   ExpensesDashboardPayload,
@@ -32,10 +33,12 @@ export function DashboardScreen() {
   });
   const [submitError, setSubmitError] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [editError, setEditError] = useState("");
   const [inviteFeedback, setInviteFeedback] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [isSubmitting, startSubmitTransition] = useTransition();
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+  const [isEditingId, setIsEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -75,6 +78,7 @@ export function DashboardScreen() {
     pagadoPor: string;
   }) {
     setSubmitError("");
+    setEditError("");
 
     return new Promise<void>((resolve) => {
       startSubmitTransition(async () => {
@@ -163,6 +167,63 @@ export function DashboardScreen() {
       };
     });
     setIsDeletingId(null);
+  }
+
+  async function handleEditExpense(input: {
+    expenseId: string;
+    descripcion: string;
+    monto: number;
+    categoria: string;
+    fecha: string;
+  }) {
+    setEditError("");
+    setIsEditingId(input.expenseId);
+
+    const response = await fetch(`/api/expenses/${input.expenseId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        descripcion: input.descripcion,
+        monto: input.monto,
+        categoria: input.categoria,
+        fecha: input.fecha,
+      }),
+    });
+    const data = await parseJson<{ error?: string; expense?: ExpenseListItem }>(response);
+
+    if (!response.ok || !data?.expense) {
+      setEditError(data?.error ?? "No pudimos actualizar el gasto.");
+      setIsEditingId(null);
+      return false;
+    }
+
+    setState((currentState) => {
+      if (!currentState.payload) {
+        return currentState;
+      }
+
+      const expenses = currentState.payload.expenses.map((expense) =>
+        expense._id === input.expenseId
+          ? {
+              ...expense,
+              ...data.expense,
+              pagadoPorDetalle: expense.pagadoPorDetalle,
+            }
+          : expense
+      );
+
+      return {
+        ...currentState,
+        payload: withUpdatedDashboardSummary({
+          ...currentState.payload,
+          expenses,
+        }),
+      };
+    });
+    setIsEditingId(null);
+    return true;
   }
 
   async function handleCopyInviteCode() {
@@ -308,8 +369,15 @@ export function DashboardScreen() {
           expenses={paginatedExpenses}
           currentPage={safeCurrentPage}
           totalPages={totalPages}
+          monthKey={state.payload.currentMonth}
+          availableCategories={
+            state.payload.household.categoriasHabilitadas as ExpenseCategoryValue[]
+          }
           isDeletingId={isDeletingId}
+          isEditingId={isEditingId}
+          editError={editError}
           onDeleteExpense={handleDeleteExpense}
+          onEditExpense={handleEditExpense}
           onPageChange={setCurrentPage}
         />
       </section>

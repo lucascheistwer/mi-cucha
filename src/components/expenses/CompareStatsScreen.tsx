@@ -20,12 +20,8 @@ type MonthStats = {
   expenseCount: number;
   averageExpense: number;
   paymentTotal: number;
-  biggestExpense: ExpenseListItem | null;
-  biggestDay: {
-    dateKey: string;
-    label: string;
-    total: number;
-  } | null;
+  expenses: ExpenseListItem[];
+  topExpenses: ExpenseListItem[];
   topCategory: {
     icon: string;
     label: string;
@@ -36,6 +32,24 @@ type MonthStats = {
   topThreeShare: number;
   isCurrent: boolean;
   isFinalized: boolean;
+};
+
+type RecurringExpenseMonthPoint = {
+  monthKey: string;
+  label: string;
+  total: number;
+};
+
+type RecurringExpenseStats = {
+  normalizedName: string;
+  displayName: string;
+  monthCount: number;
+  totalAmount: number;
+  averageAmount: number;
+  latestAmount: number;
+  latestMonthKey: string;
+  trendAmount: number | null;
+  months: RecurringExpenseMonthPoint[];
 };
 
 async function parseJson<T>(response: Response) {
@@ -53,33 +67,93 @@ function sortExpensesByAmountDesc(firstExpense: ExpenseListItem, secondExpense: 
   );
 }
 
-function buildBiggestDay(expenses: ExpenseListItem[]) {
-  const totalsByDate = expenses.reduce<Map<string, number>>((accumulator, expense) => {
-    const dateKey = expense.fecha.slice(0, 10);
+function normalizeExpenseDescription(description: string) {
+  return description.trim().replace(/\s+/g, " ").toLocaleLowerCase("es-AR");
+}
 
-    accumulator.set(dateKey, roundCurrencyAmount((accumulator.get(dateKey) ?? 0) + expense.monto));
+function buildRecurringExpenseStats(months: MonthStats[]) {
+  const expensesByName = new Map<
+    string,
+    {
+      displayName: string;
+      months: Map<string, RecurringExpenseMonthPoint>;
+    }
+  >();
 
-    return accumulator;
-  }, new Map());
+  months.forEach((month) => {
+    const monthlyTotals = new Map<string, { displayName: string; total: number }>();
 
-  return Array.from(totalsByDate.entries()).reduce<MonthStats["biggestDay"]>(
-    (currentBiggestDay, [dateKey, total]) =>
-      !currentBiggestDay || total > currentBiggestDay.total
-        ? {
-            dateKey,
-            label: formatExpenseDate(`${dateKey}T12:00:00.000Z`),
-            total,
-          }
-        : currentBiggestDay,
-    null
-  );
+    month.expenses.forEach((expense) => {
+      const normalizedName = normalizeExpenseDescription(expense.descripcion);
+      const currentTotal = monthlyTotals.get(normalizedName);
+
+      monthlyTotals.set(normalizedName, {
+        displayName: currentTotal?.displayName ?? expense.descripcion.trim(),
+        total: roundCurrencyAmount((currentTotal?.total ?? 0) + expense.monto),
+      });
+    });
+
+    monthlyTotals.forEach((entry, normalizedName) => {
+      const currentEntry = expensesByName.get(normalizedName) ?? {
+        displayName: entry.displayName,
+        months: new Map<string, RecurringExpenseMonthPoint>(),
+      };
+
+      if (entry.displayName.length > currentEntry.displayName.length) {
+        currentEntry.displayName = entry.displayName;
+      }
+
+      currentEntry.months.set(month.monthKey, {
+        monthKey: month.monthKey,
+        label: month.label,
+        total: entry.total,
+      });
+
+      expensesByName.set(normalizedName, currentEntry);
+    });
+  });
+
+  return Array.from(expensesByName.entries())
+    .map<RecurringExpenseStats | null>(([normalizedName, entry]) => {
+      if (entry.months.size < 2) {
+        return null;
+      }
+
+      const recurringMonths = Array.from(entry.months.values()).sort((firstMonth, secondMonth) =>
+        firstMonth.monthKey.localeCompare(secondMonth.monthKey)
+      );
+      const totalAmount = roundCurrencyAmount(
+        recurringMonths.reduce((runningTotal, month) => runningTotal + month.total, 0)
+      );
+      const latestMonth = recurringMonths[recurringMonths.length - 1];
+      const previousMonth = recurringMonths[recurringMonths.length - 2] ?? null;
+
+      return {
+        normalizedName,
+        displayName: entry.displayName,
+        monthCount: recurringMonths.length,
+        totalAmount,
+        averageAmount: totalAmount / recurringMonths.length,
+        latestAmount: latestMonth.total,
+        latestMonthKey: latestMonth.monthKey,
+        trendAmount: previousMonth ? latestMonth.total - previousMonth.total : null,
+        months: recurringMonths,
+      };
+    })
+    .filter((expense): expense is RecurringExpenseStats => expense !== null)
+    .sort(
+      (firstExpense, secondExpense) =>
+        secondExpense.monthCount - firstExpense.monthCount ||
+        secondExpense.totalAmount - firstExpense.totalAmount ||
+        secondExpense.latestMonthKey.localeCompare(firstExpense.latestMonthKey)
+    );
 }
 
 function buildMonthStats(payload: ExpensesDashboardPayload): MonthStats {
   const biggestExpenses = [...payload.expenses].sort(sortExpensesByAmountDesc);
-  const biggestExpense = biggestExpenses[0] ?? null;
+  const topExpenses = biggestExpenses.slice(0, 3);
   const topThreeTotal = roundCurrencyAmount(
-    biggestExpenses.slice(0, 3).reduce((runningTotal, expense) => runningTotal + expense.monto, 0)
+    topExpenses.reduce((runningTotal, expense) => runningTotal + expense.monto, 0)
   );
   const topCategory = payload.summary.categorySummary[0] ?? null;
 
@@ -91,8 +165,8 @@ function buildMonthStats(payload: ExpensesDashboardPayload): MonthStats {
     averageExpense:
       payload.expenses.length > 0 ? payload.summary.gastoTotal / payload.expenses.length : 0,
     paymentTotal: payload.summary.paymentTotal,
-    biggestExpense,
-    biggestDay: buildBiggestDay(payload.expenses),
+    expenses: payload.expenses,
+    topExpenses,
     topCategory: topCategory
       ? {
           icon: topCategory.icon,
@@ -133,6 +207,7 @@ function getDeltaTone(currentTotal: number, previousTotal: number | null) {
 
 export function CompareStatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [selectedRecurringExpense, setSelectedRecurringExpense] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>({
     months: [],
     error: "",
@@ -211,6 +286,7 @@ export function CompareStatsScreen() {
     () => [...state.months].sort((firstMonth, secondMonth) => firstMonth.monthKey.localeCompare(secondMonth.monthKey)),
     [state.months]
   );
+  const recurringExpenses = useMemo(() => buildRecurringExpenseStats(state.months), [state.months]);
   const maxTotal = Math.max(0, ...state.months.map((month) => month.total));
   const selectedStats =
     state.months.find((month) => month.monthKey === selectedMonth) ?? state.months[0] ?? null;
@@ -228,6 +304,14 @@ export function CompareStatsScreen() {
           : currentCalmMonth,
       null
     );
+  const mostRecurringExpense = recurringExpenses[0] ?? null;
+  const selectedRecurringStats =
+    recurringExpenses.find((expense) => expense.normalizedName === selectedRecurringExpense) ??
+    mostRecurringExpense;
+  const recurringMaxTotal = Math.max(
+    0,
+    ...(selectedRecurringStats?.months.map((month) => month.total) ?? [])
+  );
 
   if (state.isLoading) {
     return (
@@ -292,6 +376,15 @@ export function CompareStatsScreen() {
               </p>
               <p className="text-xs text-teal-700">
                 {calmMonth ? `${formatCurrency(calmMonth.averageExpense)} promedio` : ""}
+              </p>
+            </div>
+            <div className="rounded-[1.4rem] bg-amber-50 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-amber-700">más recurrente</p>
+              <p className="mt-1 truncate text-sm font-semibold text-amber-950">
+                {mostRecurringExpense?.displayName ?? "-"}
+              </p>
+              <p className="text-xs text-amber-700">
+                {mostRecurringExpense ? `${mostRecurringExpense.monthCount} meses detectados` : ""}
               </p>
             </div>
           </div>
@@ -387,28 +480,6 @@ export function CompareStatsScreen() {
                 {selectedStats.topCategory ? formatCurrency(selectedStats.topCategory.total) : ""}
               </p>
             </div>
-            <div className="rounded-[1.2rem] bg-amber-50 px-3 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">
-                día más caro
-              </p>
-              <p className="mt-1 truncate text-sm font-semibold text-amber-950">
-                {selectedStats.biggestDay?.label ?? "-"}
-              </p>
-              <p className="text-xs text-amber-700">
-                {selectedStats.biggestDay ? formatCurrency(selectedStats.biggestDay.total) : ""}
-              </p>
-            </div>
-            <div className="rounded-[1.2rem] bg-rose-50 px-3 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-rose-700">
-                mayor gasto
-              </p>
-              <p className="mt-1 truncate text-sm font-semibold text-rose-950">
-                {selectedStats.biggestExpense?.descripcion ?? "-"}
-              </p>
-              <p className="text-xs text-rose-700">
-                {selectedStats.biggestExpense ? formatCurrency(selectedStats.biggestExpense.monto) : ""}
-              </p>
-            </div>
           </div>
 
           <div className="mt-5 rounded-[1.4rem] border border-stone-200 bg-stone-50 px-4 py-4">
@@ -430,6 +501,155 @@ export function CompareStatsScreen() {
               Los 3 gastos más grandes suman {formatCurrency(selectedStats.topThreeTotal)}.
             </p>
           </div>
+
+          <div className="mt-4 rounded-[1.4rem] border border-stone-200 bg-white/80 px-4 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-600">
+                3 gastos más grandes
+              </h3>
+              <span className="text-xs font-medium text-stone-500">
+                {selectedStats.expenseCount} registrados
+              </span>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {selectedStats.topExpenses.length > 0 ? (
+                selectedStats.topExpenses.map((expense, index) => (
+                  <div
+                    key={expense._id}
+                    className="flex items-center justify-between gap-3 rounded-[1.1rem] bg-stone-50 px-3 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-400">
+                        top {index + 1}
+                      </p>
+                      <p className="truncate text-sm font-semibold text-stone-950">
+                        {expense.descripcion}
+                      </p>
+                      <p className="text-xs text-stone-500">{formatExpenseDate(expense.fecha)}</p>
+                    </div>
+                    <p className="shrink-0 text-sm font-semibold text-stone-950">
+                      {formatCurrency(expense.monto)}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-stone-500">Todavía no hay gastos para mostrar.</p>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {recurringExpenses.length > 0 ? (
+        <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-stone-950">
+                Evolución por gasto
+              </h2>
+              <p className="mt-1 text-sm text-stone-500">
+                Detectamos gastos repetidos por nombre, sin importar mayúsculas o minúsculas.
+              </p>
+            </div>
+            <span className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
+              {recurringExpenses.length} recurrentes
+            </span>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {recurringExpenses.slice(0, 6).map((expense) => {
+              const isSelected = expense.normalizedName === selectedRecurringStats?.normalizedName;
+
+              return (
+                <button
+                  key={expense.normalizedName}
+                  type="button"
+                  onClick={() => setSelectedRecurringExpense(expense.normalizedName)}
+                  className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
+                    isSelected
+                      ? "bg-stone-950 text-white"
+                      : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
+                  }`}
+                >
+                  {expense.displayName}
+                </button>
+              );
+            })}
+          </div>
+
+          {selectedRecurringStats ? (
+            <>
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className="rounded-[1.2rem] bg-stone-100 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                    meses
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-stone-950">
+                    {selectedRecurringStats.monthCount}
+                  </p>
+                </div>
+                <div className="rounded-[1.2rem] bg-teal-50 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-teal-700">
+                    último valor
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-teal-950">
+                    {formatCurrency(selectedRecurringStats.latestAmount)}
+                  </p>
+                </div>
+                <div className="rounded-[1.2rem] bg-amber-50 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">
+                    tendencia
+                  </p>
+                  <p
+                    className={`mt-1 text-sm font-semibold ${
+                      getDeltaTone(
+                        selectedRecurringStats.latestAmount,
+                        selectedRecurringStats.latestAmount - (selectedRecurringStats.trendAmount ?? 0)
+                      )
+                    }`}
+                  >
+                    {selectedRecurringStats.trendAmount === null
+                      ? "sin comparación"
+                      : formatDelta(
+                          selectedRecurringStats.latestAmount,
+                          selectedRecurringStats.latestAmount - selectedRecurringStats.trendAmount
+                        )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {selectedRecurringStats.months.map((month) => {
+                  const width =
+                    recurringMaxTotal > 0 ? Math.max((month.total / recurringMaxTotal) * 100, 8) : 0;
+
+                  return (
+                    <div
+                      key={`${selectedRecurringStats.normalizedName}-${month.monthKey}`}
+                      className="rounded-[1.2rem] border border-stone-200 bg-white/80 px-4 py-3"
+                    >
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <p className="font-semibold text-stone-950">{month.label}</p>
+                        <p className="font-semibold text-stone-950">{formatCurrency(month.total)}</p>
+                      </div>
+                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-stone-200">
+                        <div
+                          className="h-full rounded-full bg-teal-500 transition-[width]"
+                          style={{ width: `${width}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <p className="mt-3 text-xs text-stone-500">
+                Promedio histórico {formatCurrency(selectedRecurringStats.averageAmount)} · total acumulado{" "}
+                {formatCurrency(selectedRecurringStats.totalAmount)}.
+              </p>
+            </>
+          ) : null}
         </section>
       ) : null}
     </div>
