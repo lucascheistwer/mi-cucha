@@ -1,0 +1,24 @@
+src/app/globals.css
+  s_516699864f47ab::t_2101eb78f7f388 30-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "c94394091d007cbdb6d6636dad6062e5a0d9116f",
+  "prompts": {},
+  "humans": {
+    "h_4f59ee1b9f9c43": {
+      "author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  },
+  "sessions": {
+    "s_516699864f47ab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ecd09-fec2-7f40-b5a1-e77f02a3a098",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
