@@ -37,6 +37,7 @@ export function ConfigScreen() {
   const [saveError, setSaveError] = useState("");
   const [saveFeedback, setSaveFeedback] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
   const [googleFeedback, setGoogleFeedback] = useState(() => {
     if (typeof window === "undefined") {
       return "";
@@ -237,6 +238,17 @@ export function ConfigScreen() {
     setGoogleFeedback("Se desconectó la cuenta de Google.");
   }
 
+  function handleConnectGoogle() {
+    if (isConnectingGoogle) {
+      return;
+    }
+
+    setSaveError("");
+    setGoogleFeedback("");
+    setIsConnectingGoogle(true);
+    window.location.assign("/api/google/connect");
+  }
+
   if (state.isLoading) {
     return (
       <div className="space-y-4">
@@ -341,12 +353,14 @@ export function ConfigScreen() {
               Desconectar
             </button>
           ) : (
-            <a
-              href="/api/google/connect"
-              className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
+            <button
+              type="button"
+              onClick={handleConnectGoogle}
+              disabled={isConnectingGoogle}
+              className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:bg-teal-100 disabled:cursor-wait disabled:opacity-70"
             >
-              Conectar Google
-            </a>
+              {isConnectingGoogle ? "Conectando..." : "Conectar Google"}
+            </button>
           )}
         </div>
 

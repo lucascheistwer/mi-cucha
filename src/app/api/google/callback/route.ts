@@ -42,20 +42,10 @@ export async function GET(request: NextRequest) {
   const requestId = request.headers.get("x-vercel-id");
   const userAgent = request.headers.get("user-agent");
   const stateMatches = Boolean(state && storedState && state === storedState);
+  const isReadyToExchange = Boolean(session && code && stateMatches);
   const response = NextResponse.redirect(
-    buildConfigurationRedirect(request, session && code && stateMatches ? "connected" : "error")
+    buildConfigurationRedirect(request, isReadyToExchange ? "connected" : "error")
   );
-
-  response.cookies.set({
-    name: stateCookieName,
-    value: "",
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0,
-    expires: new Date(0),
-  });
 
   console.info("[google-callback] received", {
     requestId,
@@ -135,6 +125,17 @@ export async function GET(request: NextRequest) {
       origin: request.nextUrl.origin,
       userId: session.sub,
       email,
+    });
+
+    response.cookies.set({
+      name: stateCookieName,
+      value: "",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 0,
+      expires: new Date(0),
     });
 
     return response;

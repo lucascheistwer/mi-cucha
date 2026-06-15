@@ -26,6 +26,8 @@ export async function GET(request: NextRequest) {
   const session = token ? verifySessionToken(token) : null;
   const requestId = request.headers.get("x-vercel-id");
   const userAgent = request.headers.get("user-agent");
+  const stateCookieName = getGoogleOAuthCookieName();
+  const existingState = request.cookies.get(stateCookieName)?.value;
 
   if (!session) {
     console.warn("[google-connect] missing-session", {
@@ -38,24 +40,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  const state = createGoogleOAuthState();
+  const state = existingState ?? createGoogleOAuthState();
   const redirectUrl = buildGoogleOAuthUrl({
     origin: request.nextUrl.origin,
     state,
   });
   const googleOAuthUrl = new URL(redirectUrl);
   const response = NextResponse.redirect(redirectUrl);
-  const stateCookieName = getGoogleOAuthCookieName();
 
-  response.cookies.set({
-    name: stateCookieName,
-    value: state,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 10,
-  });
+  if (!existingState) {
+    response.cookies.set({
+      name: stateCookieName,
+      value: state,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 10,
+    });
+  }
 
   console.info("[google-connect] oauth-start", {
     requestId,
@@ -65,6 +68,7 @@ export async function GET(request: NextRequest) {
     hasSessionCookie: Boolean(token),
     stateCookieName,
     statePreview: summarizeValue(state),
+    reusedExistingState: Boolean(existingState),
     redirectUri: googleOAuthUrl.searchParams.get("redirect_uri"),
     sameSite: "lax",
     secureCookie: process.env.NODE_ENV === "production",
