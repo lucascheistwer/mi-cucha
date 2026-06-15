@@ -20,18 +20,34 @@ function buildConfigurationRedirect(request: NextRequest, status: string) {
   return redirectUrl;
 }
 
+function summarizeValue(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  if (value.length <= 8) {
+    return value;
+  }
+
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
 export async function GET(request: NextRequest) {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? verifySessionToken(token) : null;
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
-  const storedState = request.cookies.get(getGoogleOAuthCookieName())?.value;
+  const stateCookieName = getGoogleOAuthCookieName();
+  const storedState = request.cookies.get(stateCookieName)?.value;
+  const requestId = request.headers.get("x-vercel-id");
+  const userAgent = request.headers.get("user-agent");
+  const stateMatches = Boolean(state && storedState && state === storedState);
   const response = NextResponse.redirect(
-    buildConfigurationRedirect(request, session && code && state && state === storedState ? "connected" : "error")
+    buildConfigurationRedirect(request, session && code && stateMatches ? "connected" : "error")
   );
 
   response.cookies.set({
-    name: getGoogleOAuthCookieName(),
+    name: stateCookieName,
     value: "",
     httpOnly: true,
     sameSite: "lax",
@@ -41,11 +57,46 @@ export async function GET(request: NextRequest) {
     expires: new Date(0),
   });
 
-  if (!session || !code || !state || state !== storedState) {
+  console.info("[google-callback] received", {
+    requestId,
+    host: request.nextUrl.host,
+    origin: request.nextUrl.origin,
+    hasSessionCookie: Boolean(token),
+    hasSession: Boolean(session),
+    hasCode: Boolean(code),
+    hasStateParam: Boolean(state),
+    hasStoredStateCookie: Boolean(storedState),
+    stateMatches,
+    stateParamPreview: summarizeValue(state),
+    storedStatePreview: summarizeValue(storedState),
+    stateCookieName,
+    userAgent,
+  });
+
+  if (!session || !code || !state || !stateMatches) {
+    console.warn("[google-callback] preflight-failed", {
+      requestId,
+      reason: {
+        missingSession: !session,
+        missingCode: !code,
+        missingStateParam: !state,
+        missingStoredStateCookie: !storedState,
+        stateMismatch: Boolean(state && storedState && state !== storedState),
+      },
+      host: request.nextUrl.host,
+      origin: request.nextUrl.origin,
+      userAgent,
+    });
     return response;
   }
 
   try {
+    console.info("[google-callback] token-exchange-start", {
+      requestId,
+      host: request.nextUrl.host,
+      origin: request.nextUrl.origin,
+      userId: session.sub,
+    });
     const googleTokens = await exchangeGoogleCodeForTokens({
       code,
       origin: request.nextUrl.origin,
@@ -78,8 +129,23 @@ export async function GET(request: NextRequest) {
       }
     );
 
+    console.info("[google-callback] success", {
+      requestId,
+      host: request.nextUrl.host,
+      origin: request.nextUrl.origin,
+      userId: session.sub,
+      email,
+    });
+
     return response;
-  } catch {
+  } catch (error) {
+    console.error("[google-callback] token-exchange-failed", {
+      requestId,
+      host: request.nextUrl.host,
+      origin: request.nextUrl.origin,
+      userId: session.sub,
+      message: error instanceof Error ? error.message : "unknown-error",
+    });
     return NextResponse.redirect(buildConfigurationRedirect(request, "error"));
   }
 }
