@@ -1,0 +1,26 @@
+src/app/api/google/connect/route.ts
+  s_2a22c52e2d0043::t_6e881028d608c0 12-23,27-28,31-37,47,50,59-70
+src/app/api/google/callback/route.ts
+  s_2a22c52e2d0043::t_6e881028d608c0 23-34,40-44,46,50,60-89,94-99,132-139,141-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "09a95cda39f199d032a2a6577ad5085a9658103a",
+  "prompts": {},
+  "humans": {
+    "h_4f59ee1b9f9c43": {
+      "author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  },
+  "sessions": {
+    "s_2a22c52e2d0043": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eccc1-5357-7ea3-aef4-f215a337a32d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
