@@ -367,6 +367,7 @@ export function DashboardScreen() {
 
         <ExpenseList
           expenses={paginatedExpenses}
+          users={state.payload.users}
           currentPage={safeCurrentPage}
           totalPages={totalPages}
           monthKey={state.payload.currentMonth}

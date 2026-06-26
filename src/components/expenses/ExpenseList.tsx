@@ -5,8 +5,9 @@ import { useState } from "react";
 import { formatCurrency } from "@/lib/utils";
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 import { formatExpenseDate, getDefaultInputValueForMonth } from "@/lib/date-helpers";
+import { getUserAccent } from "@/lib/user-accent";
 import type { ExpenseCategoryValue } from "@/lib/expense-categories";
-import type { ExpenseListItem } from "@/types/expense";
+import type { ExpenseListItem, HouseholdUserOption } from "@/types/expense";
 
 function getMonthDateBounds(monthKey: string) {
   const [year, month] = monthKey.split("-").map(Number);
@@ -20,6 +21,7 @@ function getMonthDateBounds(monthKey: string) {
 
 type ExpenseListProps = {
   expenses: ExpenseListItem[];
+  users: HouseholdUserOption[];
   currentPage: number;
   totalPages: number;
   monthKey: string;
@@ -40,6 +42,7 @@ type ExpenseListProps = {
 
 export function ExpenseList({
   expenses,
+  users,
   currentPage,
   totalPages,
   monthKey,
@@ -123,13 +126,14 @@ export function ExpenseList({
               (item) => item.value === expense.categoria
             );
             const payerName = expense.pagadoPorDetalle?.nombre ?? "Usuario";
+            const payerAccent = getUserAccent(users, expense.pagadoPorDetalle?._id ?? expense.pagadoPor);
             const isEditingThisExpense = visibleEditingExpenseId === expense._id;
             const isSavingThisExpense = isEditingId === expense._id;
 
             return (
               <article
                 key={expense._id}
-                className="rounded-[1.4rem] border border-stone-200 bg-white px-4 py-4 shadow-[0_10px_24px_rgba(28,25,23,0.06)]"
+                className="rounded-[1.6rem] border border-stone-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(250,248,245,0.96))] px-4 py-4 shadow-[0_12px_28px_rgba(28,25,23,0.06)]"
               >
                 {isEditingThisExpense ? (
                   <div className="space-y-3">
@@ -138,7 +142,11 @@ export function ExpenseList({
                         {category?.icon ?? "✨"} {category?.label ?? expense.categoria}
                       </span>
                       <span>{formatExpenseDate(expense.fecha)}</span>
-                      <span>Pagó {payerName}</span>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${payerAccent.borderClassName} ${payerAccent.backgroundClassName} ${payerAccent.textClassName}`}
+                      >
+                        Pagó {payerName}
+                      </span>
                     </div>
 
                     <label className="block space-y-1.5">
@@ -245,46 +253,60 @@ export function ExpenseList({
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-stone-500">
-                        <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-600">
-                          {category?.icon ?? "✨"} {category?.label ?? expense.categoria}
-                        </span>
-                        <span>{formatExpenseDate(expense.fecha)}</span>
-                      </div>
-                      <h3 className="truncate text-base font-semibold text-stone-950">
-                        {expense.descripcion}
-                      </h3>
-                      <p className="text-sm text-stone-600">Pagó {payerName}</p>
-                    </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-[1.02rem] font-semibold leading-6 text-stone-950">
+                            {expense.descripcion}
+                          </h3>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-stone-500">
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-2.5 py-1 font-medium text-stone-600">
+                              <span>{category?.icon ?? "✨"}</span>
+                              <span>{category?.label ?? expense.categoria}</span>
+                            </span>
+                            <span className="h-1 w-1 rounded-full bg-stone-300" />
+                            <span>{formatExpenseDate(expense.fecha)}</span>
+                          </div>
+                        </div>
 
-                    <div className="flex shrink-0 flex-col items-end gap-2">
-                      <strong className="text-base font-semibold text-stone-950">
-                        {formatCurrency(expense.monto)}
-                      </strong>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => startEditingExpense(expense)}
-                          disabled={isDeletingId === expense._id || isEditingId === expense._id}
-                          className="flex h-9 w-9 items-center justify-center rounded-full border border-teal-200 bg-teal-50 text-teal-700 transition hover:border-teal-300 hover:text-teal-900 disabled:cursor-not-allowed disabled:opacity-50"
-                          aria-label={`Editar gasto ${expense.descripcion}`}
-                          title="Editar gasto"
+                        <strong className="shrink-0 text-lg font-semibold tracking-tight text-stone-950">
+                          {formatCurrency(expense.monto)}
+                        </strong>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-3 border-t border-stone-200/80 pt-3">
+                        <span
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${payerAccent.borderClassName} ${payerAccent.backgroundClassName} ${payerAccent.textClassName}`}
                         >
-                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
-                            <path d="M4 20h4l10-10-4-4L4 16v4Z" />
-                            <path d="m13.5 6.5 4 4" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteExpense(expense._id)}
-                          disabled={isDeletingId === expense._id || isEditingId === expense._id}
-                          className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isDeletingId === expense._id ? "Eliminando..." : "Eliminar"}
-                        </button>
+                          <span className={`h-2 w-2 rounded-full ${payerAccent.dotClassName}`} />
+                          <span className="text-stone-500">Pagó</span>
+                          <span className="font-semibold">{payerName}</span>
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditingExpense(expense)}
+                            disabled={isDeletingId === expense._id || isEditingId === expense._id}
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-teal-200 bg-white text-teal-700 transition hover:border-teal-300 hover:text-teal-900 disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label={`Editar gasto ${expense.descripcion}`}
+                            title="Editar gasto"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+                              <path d="M4 20h4l10-10-4-4L4 16v4Z" />
+                              <path d="m13.5 6.5 4 4" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteExpense(expense._id)}
+                            disabled={isDeletingId === expense._id || isEditingId === expense._id}
+                            className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isDeletingId === expense._id ? "Eliminando..." : "Eliminar"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
