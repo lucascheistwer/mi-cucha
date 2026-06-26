@@ -1,0 +1,32 @@
+src/lib/user-accent.ts
+  s_71e853a3a68436::t_59277b64f8505e 7,14,21,28,37
+  s_71e853a3a68436::t_89b308f06d9d57 1-6,8-13,15-20,22-27,29-36,38-57
+src/components/expenses/DashboardScreen.tsx
+  s_71e853a3a68436::t_216838ac467f52 370
+src/components/expenses/ExpenseList.tsx
+  s_71e853a3a68436::t_0fcfb56df1d208 8,10,24,45,129,145-149
+  s_71e853a3a68436::t_8a7b51b0412dff 136,256-275,278,280,283-284,287-309
+  s_71e853a3a68436::t_838d7cb19133a8 279,285
+  s_71e853a3a68436::t_ffdd98f88d3956 282
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "cb8598a6421a31435bf5ca970be6e07d59e9b8dc",
+  "prompts": {},
+  "humans": {
+    "h_4f59ee1b9f9c43": {
+      "author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  },
+  "sessions": {
+    "s_71e853a3a68436": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f05c2-fc61-73f3-a2c3-9311c7859f71",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
