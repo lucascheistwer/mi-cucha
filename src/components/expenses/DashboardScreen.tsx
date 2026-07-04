@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 
 import { withUpdatedDashboardSummary } from "@/lib/dashboard-summary";
@@ -310,23 +309,6 @@ export function DashboardScreen() {
               <p className="mt-1 text-lg font-semibold text-stone-950">
                 {state.payload.users.length}
               </p>
-            </div>
-          </div>
-
-          <div className="flex items-center">
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href="/resumen"
-                className="inline-flex rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
-              >
-                Ver resumen
-              </Link>
-              <Link
-                href="/configuracion"
-                className="inline-flex rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
-              >
-                Configuración
-              </Link>
             </div>
           </div>
 

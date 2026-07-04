@@ -119,8 +119,8 @@ export function ExpenseList({
 
   return (
     <div className="rounded-[1.8rem] border border-white/70 bg-white/85 shadow-[0_16px_36px_rgba(28,25,23,0.08)] backdrop-blur">
-      <div className="flex min-h-[34rem] flex-col">
-        <div className="flex-1 space-y-3 p-3">
+      <div className="flex flex-col">
+        <div className="min-h-[51.0625rem] space-y-3 p-3">
           {expenses.map((expense) => {
             const category = EXPENSE_CATEGORIES.find(
               (item) => item.value === expense.categoria
@@ -316,12 +316,12 @@ export function ExpenseList({
           })}
         </div>
 
-        <div className="border-t border-stone-200/80 px-4 py-3">
+        <div className="border-t border-stone-200/80 px-4 py-4">
           <p className="text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
             Página {currentPage} de {totalPages}
           </p>
 
-          <div className="flex items-center gap-2">
+          <div className="mt-3 flex items-center gap-3">
             <button
               type="button"
               onClick={() => onPageChange(currentPage - 1)}

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { formatExpenseDate, formatMonthLabel } from "@/lib/date-helpers";
@@ -342,21 +341,6 @@ export function CompareStatsScreen() {
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-stone-950">
               Estadísticas
             </h1>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/resumen"
-              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
-            >
-              Resumen
-            </Link>
-            <Link
-              href="/dashboard"
-              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
-            >
-              Dashboard
-            </Link>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

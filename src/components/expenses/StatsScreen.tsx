@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { formatExpenseDate, formatMonthLabel, getTodayInputValue } from "@/lib/date-helpers";
+import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 import { formatCurrency } from "@/lib/utils";
 import type {
   ActiveDebtSettlement,
@@ -34,6 +34,10 @@ type FinalizeDialogState = {
 const ALL_CATEGORY_FILTER = "all";
 const MAX_VISIBLE_MONTHS = 5;
 const MAX_VISIBLE_FILTERED_EXPENSES = 5;
+const MAX_VISIBLE_STATS_ITEMS = 5;
+const EXPENSE_CATEGORY_LABELS = new Map<string, string>(
+  EXPENSE_CATEGORIES.map((category) => [category.value, category.label])
+);
 
 async function parseJson<T>(response: Response) {
   return (await response.json().catch(() => null)) as T | null;
@@ -88,10 +92,88 @@ function sortExpensesByNewest(firstExpense: ExpenseListItem, secondExpense: Expe
   );
 }
 
+function sanitizeClipboardCell(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function formatClipboardDate(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const day = date.getUTCDate();
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, "0");
+  const year = date.getUTCFullYear();
+
+  return `${day}/${month}/${year}`;
+}
+
+function formatClipboardCurrency(value: number) {
+  const roundedValue = Number.isInteger(value) ? value : Number(value.toFixed(2));
+
+  return new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: Number.isInteger(roundedValue) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(roundedValue);
+}
+
+function buildExpensesClipboardText(expenses: ExpenseListItem[]) {
+  return [...expenses]
+    .sort((firstExpense, secondExpense) => {
+      const dateDiff =
+        new Date(firstExpense.fecha).getTime() - new Date(secondExpense.fecha).getTime();
+
+      return (
+        dateDiff ||
+        new Date(firstExpense.createdAt).getTime() -
+          new Date(secondExpense.createdAt).getTime()
+      );
+    })
+    .map((expense) =>
+      [
+        sanitizeClipboardCell(expense.descripcion),
+        EXPENSE_CATEGORY_LABELS.get(expense.categoria) ?? sanitizeClipboardCell(expense.categoria),
+        formatClipboardDate(expense.fecha),
+        formatClipboardCurrency(expense.monto),
+        sanitizeClipboardCell(expense.pagadoPorDetalle?.nombre ?? "Persona"),
+      ].join("\t")
+    )
+    .join("\n");
+}
+
+async function copyTextToClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const textarea = document.createElement("textarea");
+
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    try {
+      return document.execCommand("copy");
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  }
+}
+
 export function StatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORY_FILTER);
   const [historyPage, setHistoryPage] = useState(0);
+  const [spendingRowsPage, setSpendingRowsPage] = useState(0);
+  const [paymentsPage, setPaymentsPage] = useState(0);
+  const [categoriesPage, setCategoriesPage] = useState(0);
   const [filteredExpensesPage, setFilteredExpensesPage] = useState(0);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [state, setState] = useState<LoadState>({
@@ -104,6 +186,8 @@ export function StatsScreen() {
   const [paymentFeedback, setPaymentFeedback] = useState("");
   const [finalizeFeedback, setFinalizeFeedback] = useState("");
   const [finalizeError, setFinalizeError] = useState("");
+  const [exportFeedback, setExportFeedback] = useState("");
+  const [exportError, setExportError] = useState("");
   const [finalizeDialog, setFinalizeDialog] = useState<FinalizeDialogState>({
     isOpen: false,
     message: "",
@@ -146,6 +230,12 @@ export function StatsScreen() {
       setPaymentFeedback("");
       setFinalizeFeedback("");
       setFinalizeError("");
+      setExportFeedback("");
+      setExportError("");
+      setSpendingRowsPage(0);
+      setPaymentsPage(0);
+      setCategoriesPage(0);
+      setFilteredExpensesPage(0);
       setState({ payload: data, error: "", isLoading: false });
     }
 
@@ -238,6 +328,9 @@ export function StatsScreen() {
   }
 
   function handleSelectMonth(monthKey: string) {
+    setSpendingRowsPage(0);
+    setPaymentsPage(0);
+    setCategoriesPage(0);
     setFilteredExpensesPage(0);
     setSelectedMonth(monthKey);
   }
@@ -277,11 +370,6 @@ export function StatsScreen() {
         error?: string;
         activeMonth?: string;
         outstandingDebt?: ActiveDebtSettlement;
-        googleSheetsExport?: {
-          ok: boolean;
-          error?: string;
-          sheetTitle?: string;
-        } | null;
       }>(response);
 
       if (!response.ok) {
@@ -306,22 +394,41 @@ export function StatsScreen() {
       }
 
       closeFinalizeDialog();
-      if (data?.googleSheetsExport?.ok && data.googleSheetsExport.sheetTitle) {
-        setFinalizeFeedback(
-          `Mes finalizado. Exportamos el cierre a Google Sheets en la hoja ${data.googleSheetsExport.sheetTitle}.`
-        );
-      } else if (data?.googleSheetsExport?.ok === false) {
-        setFinalizeFeedback(
-          data.googleSheetsExport.error ??
-            "Mes finalizado, pero la exportación automática a Google Sheets falló."
-        );
-      } else {
-        setFinalizeFeedback("Mes finalizado.");
-      }
+      setFinalizeFeedback("Mes finalizado.");
+      setSpendingRowsPage(0);
+      setPaymentsPage(0);
+      setCategoriesPage(0);
       setFilteredExpensesPage(0);
       setSelectedMonth(data?.activeMonth ?? null);
     });
   }
+
+  async function handleCopyExpenses() {
+    const expenses = state.payload?.expenses ?? [];
+
+    setExportFeedback("");
+    setExportError("");
+
+    if (expenses.length === 0) {
+      setExportError("No hay gastos para copiar en este mes.");
+      return;
+    }
+
+    try {
+      const didCopy = await copyTextToClipboard(buildExpensesClipboardText(expenses));
+
+      if (!didCopy) {
+        throw new Error("Clipboard copy failed.");
+      }
+
+      setExportFeedback(
+        `Copiamos ${expenses.length} ${expenses.length === 1 ? "gasto" : "gastos"} al portapapeles. Ya podés pegarlos en tu planilla.`
+      );
+    } catch {
+      setExportError("No pudimos copiar los gastos al portapapeles.");
+    }
+  }
+
 
   async function handleCreatePayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -364,6 +471,7 @@ export function StatsScreen() {
       }
 
       setPaymentFeedback("Pago cargado en el resumen.");
+      setPaymentsPage(0);
       setReloadNonce((currentValue) => currentValue + 1);
     });
   }
@@ -402,6 +510,36 @@ export function StatsScreen() {
     activeCategoryFilter === ALL_CATEGORY_FILTER
       ? payload.summary.gastoTotal
       : selectedCategorySummary?.total ?? 0;
+  const totalSpendingRowsPages = Math.max(
+    1,
+    Math.ceil(spendingRows.length / MAX_VISIBLE_STATS_ITEMS)
+  );
+  const safeSpendingRowsPage = Math.max(
+    0,
+    Math.min(spendingRowsPage, totalSpendingRowsPages - 1)
+  );
+  const currentSpendingRowsPage = safeSpendingRowsPage + 1;
+  const paginatedSpendingRows = spendingRows.slice(
+    safeSpendingRowsPage * MAX_VISIBLE_STATS_ITEMS,
+    safeSpendingRowsPage * MAX_VISIBLE_STATS_ITEMS + MAX_VISIBLE_STATS_ITEMS
+  );
+  const totalPaymentsPages = Math.max(1, Math.ceil(payments.length / MAX_VISIBLE_STATS_ITEMS));
+  const safePaymentsPage = Math.max(0, Math.min(paymentsPage, totalPaymentsPages - 1));
+  const currentPaymentsPage = safePaymentsPage + 1;
+  const paginatedPayments = payments.slice(
+    safePaymentsPage * MAX_VISIBLE_STATS_ITEMS,
+    safePaymentsPage * MAX_VISIBLE_STATS_ITEMS + MAX_VISIBLE_STATS_ITEMS
+  );
+  const totalCategoryPages = Math.max(
+    1,
+    Math.ceil(categorySummaries.length / MAX_VISIBLE_STATS_ITEMS)
+  );
+  const safeCategoriesPage = Math.max(0, Math.min(categoriesPage, totalCategoryPages - 1));
+  const currentCategoriesPage = safeCategoriesPage + 1;
+  const paginatedCategorySummaries = categorySummaries.slice(
+    safeCategoriesPage * MAX_VISIBLE_STATS_ITEMS,
+    safeCategoriesPage * MAX_VISIBLE_STATS_ITEMS + MAX_VISIBLE_STATS_ITEMS
+  );
   const totalFilteredExpensePages = Math.max(
     1,
     Math.ceil(filteredExpenses.length / MAX_VISIBLE_FILTERED_EXPENSES)
@@ -448,24 +586,15 @@ export function StatsScreen() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Link
-              href="/configuracion"
-              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
+            <button
+              type="button"
+              onClick={() => {
+                void handleCopyExpenses();
+              }}
+              className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
             >
-              Configuración
-            </Link>
-            <Link
-              href="/dashboard"
-              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
-            >
-              Volver
-            </Link>
-            <Link
-              href="/estadisticas"
-              className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:text-teal-950"
-            >
-              Estadísticas
-            </Link>
+              Exportar gastos
+            </button>
             {payload.monthState.canFinalize ? (
               <button
                 type="button"
@@ -554,6 +683,16 @@ export function StatsScreen() {
               {finalizeError}
             </p>
           ) : null}
+          {exportFeedback ? (
+            <p className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-800">
+              {exportFeedback}
+            </p>
+          ) : null}
+          {exportError ? (
+            <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {exportError}
+            </p>
+          ) : null}
         </div>
       </section>
 
@@ -615,8 +754,17 @@ export function StatsScreen() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2">
-          {spendingRows.map((user) => (
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">
+            Personas
+          </p>
+          <p className="text-xs font-medium text-stone-500">
+            Página {currentSpendingRowsPage} de {totalSpendingRowsPages}
+          </p>
+        </div>
+
+        <div className="mt-3 grid gap-2">
+          {paginatedSpendingRows.map((user) => (
             <div
               key={user._id}
               className="rounded-[1.2rem] border border-stone-200 bg-white/90 px-4 py-3 shadow-[0_10px_24px_rgba(28,25,23,0.04)]"
@@ -650,6 +798,33 @@ export function StatsScreen() {
             </div>
           ))}
         </div>
+
+        {spendingRows.length > MAX_VISIBLE_STATS_ITEMS ? (
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setSpendingRowsPage((currentPage) => Math.max(currentPage - 1, 0))}
+              disabled={safeSpendingRowsPage === 0}
+              className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Ver página anterior de personas"
+            >
+              Anterior
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setSpendingRowsPage((currentPage) =>
+                  Math.min(currentPage + 1, totalSpendingRowsPages - 1)
+                )
+              }
+              disabled={safeSpendingRowsPage >= totalSpendingRowsPages - 1}
+              className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Ver página siguiente de personas"
+            >
+              Siguiente
+            </button>
+          </div>
+        ) : null}
 
         <div
           className={`mt-4 rounded-[1.4rem] border px-4 py-4 ${
@@ -691,9 +866,14 @@ export function StatsScreen() {
             <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-stone-300">
               Pagos del resumen
             </h2>
-            <span className="text-xs text-stone-400">
-              {payments.length} registrados
-            </span>
+            <div className="text-right">
+              <p className="text-xs text-stone-400">
+                {payments.length} registrados
+              </p>
+              <p className="mt-1 text-xs text-stone-500">
+                Página {currentPaymentsPage} de {totalPaymentsPages}
+              </p>
+            </div>
           </div>
 
           <form onSubmit={handleCreatePayment} className="mt-4 space-y-3">
@@ -768,7 +948,7 @@ export function StatsScreen() {
                 />
               </label>
 
-              <label className="space-y-1.5 text-sm text-stone-200">
+              <label className="min-w-0 space-y-1.5 text-sm text-stone-200">
                 <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
                   Fecha del pago
                 </span>
@@ -781,7 +961,7 @@ export function StatsScreen() {
                       fecha: event.target.value,
                     }))
                   }
-                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
+                  className="w-full min-w-0 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
                   disabled={isSubmittingPayment}
                   required
                 />
@@ -817,7 +997,7 @@ export function StatsScreen() {
 
           <div className="mt-4 space-y-2">
             {payments.length > 0 ? (
-              payments.map((payment) => (
+              paginatedPayments.map((payment) => (
                 <div
                   key={payment._id}
                   className="rounded-[1.2rem] border border-white/10 bg-white/8 px-4 py-3"
@@ -843,6 +1023,33 @@ export function StatsScreen() {
               </p>
             )}
           </div>
+
+          {payments.length > MAX_VISIBLE_STATS_ITEMS ? (
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPaymentsPage((currentPage) => Math.max(currentPage - 1, 0))}
+                disabled={safePaymentsPage === 0}
+                className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-100 transition hover:border-white/25 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Ver página anterior de pagos"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setPaymentsPage((currentPage) =>
+                    Math.min(currentPage + 1, totalPaymentsPages - 1)
+                  )
+                }
+                disabled={safePaymentsPage >= totalPaymentsPages - 1}
+                className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-100 transition hover:border-white/25 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Ver página siguiente de pagos"
+              >
+                Siguiente
+              </button>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -854,6 +1061,9 @@ export function StatsScreen() {
             </h2>
             <p className="mt-1 text-sm text-stone-500">
               {selectedCategoryLabel} · {filteredExpenses.length} gastos
+            </p>
+            <p className="mt-1 text-xs text-stone-500">
+              Página {currentCategoriesPage} de {totalCategoryPages}
             </p>
           </div>
           <span className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
@@ -892,7 +1102,7 @@ export function StatsScreen() {
                 </div>
               </button>
 
-              {categorySummaries.map((category) => {
+              {paginatedCategorySummaries.map((category) => {
                 const isSelected = activeCategoryFilter === category.categoria;
                 const categoryExpenseCount = expenseCountByCategory.get(category.categoria) ?? 0;
 
@@ -933,6 +1143,33 @@ export function StatsScreen() {
                 );
               })}
             </div>
+
+            {categorySummaries.length > MAX_VISIBLE_STATS_ITEMS ? (
+              <div className="mt-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCategoriesPage((currentPage) => Math.max(currentPage - 1, 0))}
+                  disabled={safeCategoriesPage === 0}
+                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Ver página anterior de categorías"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCategoriesPage((currentPage) =>
+                      Math.min(currentPage + 1, totalCategoryPages - 1)
+                    )
+                  }
+                  disabled={safeCategoriesPage >= totalCategoryPages - 1}
+                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Ver página siguiente de categorías"
+                >
+                  Siguiente
+                </button>
+              </div>
+            ) : null}
 
             <div className="mt-5 rounded-[1.4rem] border border-stone-200 bg-stone-50 px-4 py-4">
               <div className="flex items-center justify-between gap-3">
@@ -1062,6 +1299,7 @@ export function StatsScreen() {
           </div>
         </div>
       ) : null}
+
     </div>
   );
 }

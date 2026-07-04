@@ -29,6 +29,9 @@ body {
 }
 
 input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
   display: block;
   inline-size: 100%;
   min-inline-size: 0;
@@ -36,5 +39,8 @@ input[type="date"] {
 }
 
 input[type="date"]::-webkit-date-and-time-value {
+  display: block;
+  min-inline-size: 0;
+  max-inline-size: 100%;
   text-align: left;
 }
