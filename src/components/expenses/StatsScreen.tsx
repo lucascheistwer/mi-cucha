@@ -495,7 +495,6 @@ export function StatsScreen() {
   }
 
   const payload = state.payload;
-  const viewingPastMonth = !payload.monthState.isCurrent;
   const totalHistoryPages = Math.max(1, Math.ceil(payload.availableMonths.length / MAX_VISIBLE_MONTHS));
   const safeHistoryPage = Math.max(0, Math.min(historyPage, totalHistoryPages - 1));
   const currentHistoryPage = safeHistoryPage + 1;
@@ -578,11 +577,6 @@ export function StatsScreen() {
                 mes abierto
               </span>
             )}
-            {viewingPastMonth ? (
-              <span className="rounded-full bg-stone-100 px-3 py-2 text-stone-700">
-                viendo histórico
-              </span>
-            ) : null}
           </div>
 
           <div className="flex flex-wrap gap-2">
