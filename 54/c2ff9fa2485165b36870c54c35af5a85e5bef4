@@ -1,0 +1,70 @@
+src/lib/monthly-dashboard.ts
+  s_756e8d75b1f56b::t_fc695e917ddef7 48-51,135,159
+src/components/expenses/ExpenseList.tsx
+  s_d5e6c8f09df742::t_bbfb05c0f77bf3 123
+  s_d5e6c8f09df742::t_4985e1aa3ba880 122,319,324
+src/app/(dashboard)/dashboard/page.tsx
+  s_756e8d75b1f56b::t_dab79800efba7b 4-5
+src/app/(dashboard)/estadisticas/page.tsx
+  s_756e8d75b1f56b::t_dab79800efba7b 4
+src/components/expenses/StatsScreen.tsx
+  s_d5e6c8f09df742::t_dbda1dcffcbb28 757-767,802-827
+  s_756e8d75b1f56b::t_af3064e5eedac5 38
+  s_d5e6c8f09df742::t_63270a9d69085a 695,869-876,1000,1026-1052
+  s_756e8d75b1f56b::t_682fee1b0e7904 189-190,233-234,408-411,416,424,426,430,432,686-693
+  s_756e8d75b1f56b::t_970625cff60a70 146-169,418-423
+  s_d5e6c8f09df742::t_f90755a88edcbe 37,174-176,235-238,331-333,398-400,474
+  s_756e8d75b1f56b::t_f7423587c174fa 115-116
+  s_d5e6c8f09df742::t_165adea0c512a0 951,964
+  s_d5e6c8f09df742::t_77cd5135b06a03 513-542
+  s_d5e6c8f09df742::t_044e15ee5526eb 694,1065-1067,1105,1147-1172
+  s_756e8d75b1f56b::t_4c18dbbdd79204 1302
+  s_756e8d75b1f56b::t_024dbadaee5a89 6,39-40,95-114,117-145,397,406-407,412-415,417,425,427-429,431,589-594,596-597
+  s_d5e6c8f09df742::t_3dceec45b3d87d 828
+  s_d5e6c8f09df742::t_7bb8b57a01a426 1173
+src/app/(dashboard)/resumen/page.tsx
+  s_756e8d75b1f56b::t_dab79800efba7b 4-5
+src/app/(dashboard)/layout.tsx
+  s_756e8d75b1f56b::t_dab79800efba7b 1-16
+src/app/globals.css
+  s_d5e6c8f09df742::t_fd3af3c856ee76 32-34,42-44
+src/app/api/months/finalize/route.ts
+  s_756e8d75b1f56b::t_fc695e917ddef7 36
+src/app/api/household/settings/route.ts
+  s_756e8d75b1f56b::t_fc695e917ddef7 141
+src/components/expenses/AppNavigation.tsx
+  s_756e8d75b1f56b::t_4984550c048a3c 26
+  s_756e8d75b1f56b::t_bc6cfc5a899d70 40,55,78,84,86-88,90-98,100,102-113
+  s_756e8d75b1f56b::t_dab79800efba7b 1-25,27-39,41-54,56-77,79-83,85,89,99,101,114-118
+src/app/(dashboard)/configuracion/page.tsx
+  s_756e8d75b1f56b::t_dab79800efba7b 4-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "54c2ff9fa2485165b36870c54c35af5a85e5bef4",
+  "prompts": {},
+  "humans": {
+    "h_4f59ee1b9f9c43": {
+      "author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  },
+  "sessions": {
+    "s_756e8d75b1f56b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f2ee9-9433-74d1-a66a-fc577bc17cae",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    },
+    "s_d5e6c8f09df742": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f2f13-b889-75b1-b0a8-9089b7837960",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Lucas Cheistwer <lucas.cheistwer@mercadolibre.com>"
+    }
+  }
+}
