@@ -2,117 +2,114 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import type { ReactNode } from "react";
 
-const NAV_ITEMS = [
+const NAV_ITEMS: Array<{ href: string; label: string; icon: ReactNode }> = [
   {
     href: "/dashboard",
     label: "Gastos",
-    description: "Cargar y editar",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z" strokeLinejoin="round" />
+        <path d="M9 8h6M9 12h6M9 16h3" strokeLinecap="round" />
+      </svg>
+    ),
   },
   {
     href: "/resumen",
     label: "Resumen",
-    description: "Balance del mes",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path d="M7 3v11a3 3 0 0 0 3 3h7" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="m14 14 3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M17 21V10a3 3 0 0 0-3-3H7" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="m10 10-3-3-3 3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
   },
   {
     href: "/estadisticas",
     label: "Estadísticas",
-    description: "Comparar meses",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path d="M4 20V10M12 20V4M20 20v-7" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    href: "/viajes",
+    label: "Viajes",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <rect x="4" y="7" width="16" height="12" rx="2" />
+        <path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M4 12h16" />
+      </svg>
+    ),
   },
   {
     href: "/configuracion",
     label: "Ajustes",
-    description: "Cucha y categorías",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V19.5a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.04H4.5a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.04 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H10.6A1.7 1.7 0 0 0 11.64 3.6V3.5a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.11a1.7 1.7 0 0 0 1.56 1.04h.09a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.04Z"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
   },
 ];
 
-function getCurrentItem(pathname: string) {
-  return NAV_ITEMS.find((item) => pathname.startsWith(item.href)) ?? NAV_ITEMS[0];
+function isItemActive(pathname: string, href: string) {
+  return href === "/dashboard" ? pathname === href : pathname.startsWith(href);
 }
 
 export function AppNavigation() {
   const pathname = usePathname();
-  const [isOpen, setIsOpen] = useState(false);
-  const currentItem = getCurrentItem(pathname);
 
   return (
-    <header className="sticky top-0 z-20 -mx-4 border-b border-white/60 bg-[#fffaf3]/92 px-4 py-3 shadow-[0_12px_36px_rgba(28,25,23,0.08)] backdrop-blur">
-      <div className="mx-auto w-full max-w-md">
-        <div className="flex items-center justify-between gap-3">
-          <Link href="/dashboard" className="min-w-0" onClick={() => setIsOpen(false)}>
-            <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-teal-700">
+    <>
+      <header className="sticky top-0 z-20 -mx-4 border-b border-white/60 bg-[#fffaf3]/92 px-4 py-2.5 shadow-[0_10px_28px_rgba(28,25,23,0.06)] backdrop-blur">
+        <div className="mx-auto w-full max-w-md">
+          <Link href="/dashboard" className="inline-flex items-center gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-700">
               Mi Cucha
             </span>
-            <span className="block truncate text-lg font-semibold tracking-tight text-stone-950">
-              {currentItem.label}
-            </span>
           </Link>
-
-          <button
-            type="button"
-            onClick={() => setIsOpen((currentValue) => !currentValue)}
-            className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-800 shadow-[0_10px_24px_rgba(28,25,23,0.08)] transition hover:border-stone-400 hover:text-stone-950"
-            aria-expanded={isOpen}
-            aria-controls="app-navigation-menu"
-            aria-label={isOpen ? "Cerrar navegación" : "Abrir navegación"}
-            title={isOpen ? "Cerrar navegación" : "Abrir navegación"}
-          >
-            <span className="flex flex-col gap-1.5" aria-hidden="true">
-              <span
-                className={`h-0.5 w-5 rounded-full bg-current transition ${
-                  isOpen ? "translate-y-2 rotate-45" : ""
-                }`}
-              />
-              <span
-                className={`h-0.5 w-5 rounded-full bg-current transition ${
-                  isOpen ? "opacity-0" : ""
-                }`}
-              />
-              <span
-                className={`h-0.5 w-5 rounded-full bg-current transition ${
-                  isOpen ? "-translate-y-2 -rotate-45" : ""
-                }`}
-              />
-            </span>
-            <span>{isOpen ? "Cerrar" : "Menú"}</span>
-          </button>
         </div>
+      </header>
 
-        <div
-          id="app-navigation-menu"
-          className={`${isOpen ? "block" : "hidden"} mt-3 rounded-[1.5rem] border border-stone-200 bg-white/92 p-2 shadow-[0_18px_44px_rgba(28,25,23,0.12)]`}
-        >
-          <nav className="grid grid-cols-2 gap-2" aria-label="Navegación principal">
-            {NAV_ITEMS.map((item) => {
-              const isActive = currentItem.href === item.href;
+      <nav
+        aria-label="Navegación principal"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-stone-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(28,25,23,0.08)] backdrop-blur"
+      >
+        <div className="mx-auto grid w-full max-w-md grid-cols-5">
+          {NAV_ITEMS.map((item) => {
+            const isActive = isItemActive(pathname, item.href);
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setIsOpen(false)}
-                  className={`min-h-20 rounded-[1.1rem] border px-3 py-3 transition ${
-                    isActive
-                      ? "border-stone-900 bg-stone-950 text-white shadow-[0_10px_22px_rgba(28,25,23,0.18)]"
-                      : "border-stone-200 bg-stone-50 text-stone-800 hover:border-stone-300 hover:bg-white"
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={isActive ? "page" : undefined}
+                className="flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium"
+              >
+                <span
+                  className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                    isActive ? "bg-teal-50 text-teal-700" : "text-stone-500"
                   }`}
-                  aria-current={isActive ? "page" : undefined}
                 >
-                  <span className="block text-sm font-semibold leading-5">{item.label}</span>
-                  <span
-                    className={`mt-1 block text-xs leading-4 ${
-                      isActive ? "text-stone-300" : "text-stone-500"
-                    }`}
-                  >
-                    {item.description}
-                  </span>
-                </Link>
-              );
-            })}
-          </nav>
+                  {item.icon}
+                </span>
+                <span className={isActive ? "text-teal-700" : "text-stone-500"}>{item.label}</span>
+              </Link>
+            );
+          })}
         </div>
-      </div>
-    </header>
+      </nav>
+    </>
   );
 }
