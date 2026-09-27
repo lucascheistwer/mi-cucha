@@ -31,7 +31,7 @@ export function TripSubNav({ tripId }: TripSubNavProps) {
             key={item.key}
             href={href}
             aria-current={isActive ? "page" : undefined}
-            className={`rounded-full px-3 py-2 text-center text-xs font-semibold uppercase tracking-[0.1em] transition ${
+            className={`min-w-0 truncate rounded-full px-1 py-2 text-center text-[10px] font-semibold uppercase tracking-tighter transition sm:px-3 sm:text-xs sm:tracking-[0.1em] ${
               isActive
                 ? "bg-white text-teal-700 shadow-sm"
                 : "text-stone-500 hover:text-stone-700"

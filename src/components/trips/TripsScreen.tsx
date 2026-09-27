@@ -87,8 +87,8 @@ export function TripsScreen() {
 
   return (
     <div className="mx-auto w-full max-w-md space-y-6 px-4 py-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-3xl font-bold text-stone-950">Mis Viajes</h1>
           <p className="mt-2 text-sm text-stone-600">
             Gestiona y controla gastos de tus viajes
@@ -96,7 +96,7 @@ export function TripsScreen() {
         </div>
         <Link
           href="/viajes/nuevo"
-          className="rounded-2xl bg-teal-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
+          className="shrink-0 whitespace-nowrap rounded-2xl bg-teal-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
         >
           + Nuevo
         </Link>
