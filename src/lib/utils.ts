@@ -37,12 +37,25 @@ export function calculateBalance(expenses: Expense[]): ExpenseSummary {
 }
 
 /**
- * Formatea un número como moneda en pesos argentinos.
+ * Formatea un número como moneda. Por defecto en pesos argentinos;
+ * los viajes se expresan en dólares sin decimales. El símbolo "$" solo
+ * no alcanza para distinguir ARS de USD, así que en USD anteponemos
+ * "US$" explícitamente en vez de depender del símbolo de Intl.
  */
-export function formatCurrency(amount: number): string {
+export function formatCurrency(amount: number, currency: "ARS" | "USD" = "ARS"): string {
+  if (currency === "USD") {
+    const formattedNumber = new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+
+    return `US$ ${formattedNumber}`;
+  }
+
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
     minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(amount);
 }

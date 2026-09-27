@@ -1,13 +1,13 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { formatCurrency } from "@/lib/utils";
 import { buildTripSummary } from "@/lib/trip-summary";
 import { TRIP_EXPENSE_CATEGORIES } from "@/lib/trip-expense-categories";
 import { QuickTripExpenseForm } from "@/components/trips/QuickTripExpenseForm";
 import { TripExpenseList, type TripExpenseEditInput } from "@/components/trips/TripExpenseList";
+import { TripSubNav } from "@/components/trips/TripSubNav";
 import type { TripDashboardPayload, TripExpenseListItem } from "@/types/trip";
 
 type LoadState = {
@@ -19,7 +19,6 @@ type LoadState = {
 export function TripDetailScreen() {
   const params = useParams();
   const tripId = params.tripId as string;
-  const router = useRouter();
   const [state, setState] = useState<LoadState>({
     payload: null,
     error: "",
@@ -31,6 +30,7 @@ export function TripDetailScreen() {
   const [editError, setEditError] = useState("");
   const [isEditingId, setIsEditingId] = useState<string | null>(null);
   const [isSubmitting, startSubmitTransition] = useTransition();
+  const [pendingDeleteExpenseId, setPendingDeleteExpenseId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -131,6 +131,7 @@ export function TripDetailScreen() {
             const summary = buildTripSummary({
               users: currentState.payload.users,
               expenses,
+              payments: currentState.payload.payments,
               percentages: currentState.payload.porcentajesDefecto || {
                 user1: 50,
                 user2: 50,
@@ -158,6 +159,21 @@ export function TripDetailScreen() {
 
   async function handleDeleteExpense(expenseId: string) {
     setDeleteError("");
+    setPendingDeleteExpenseId(expenseId);
+  }
+
+  function cancelDeleteExpense() {
+    setPendingDeleteExpenseId(null);
+  }
+
+  async function confirmDeleteExpense() {
+    const expenseId = pendingDeleteExpenseId;
+
+    if (!expenseId) {
+      return;
+    }
+
+    setPendingDeleteExpenseId(null);
     setIsDeletingId(expenseId);
 
     try {
@@ -190,6 +206,7 @@ export function TripDetailScreen() {
         const summary = buildTripSummary({
           users: currentState.payload.users,
           expenses,
+          payments: currentState.payload.payments,
           percentages: currentState.payload.porcentajesDefecto || {
             user1: 50,
             user2: 50,
@@ -266,6 +283,7 @@ export function TripDetailScreen() {
         const summary = buildTripSummary({
           users: currentState.payload.users,
           expenses,
+          payments: currentState.payload.payments,
           percentages: currentState.payload.porcentajesDefecto || {
             user1: 50,
             user2: 50,
@@ -318,20 +336,14 @@ export function TripDetailScreen() {
 
   return (
     <div className="mx-auto w-full max-w-md space-y-6 px-4 py-6">
-      <div className="flex items-center justify-between">
-        <Link
-          href="/viajes"
-          className="inline-flex items-center gap-1 text-sm font-medium text-teal-600 hover:text-teal-700"
-        >
-          ← Volver a viajes
-        </Link>
-        <Link
-          href={`/viajes/${tripId}/estadisticas`}
-          className="inline-flex items-center gap-1 text-sm font-medium text-teal-600 hover:text-teal-700"
-        >
-          Ver estadísticas →
-        </Link>
-      </div>
+      <Link
+        href="/viajes"
+        className="inline-flex items-center gap-1 text-sm font-medium text-teal-600 hover:text-teal-700"
+      >
+        ← Volver a viajes
+      </Link>
+
+      <TripSubNav tripId={tripId} />
 
       <div>
         <div className="flex items-start justify-between gap-4">
@@ -364,42 +376,6 @@ export function TripDetailScreen() {
           <span className="rounded-full bg-teal-100 px-2 py-1 font-medium text-teal-700">
             {payload.trip.estado === "activo" ? "Activo" : "Finalizado"}
           </span>
-        </div>
-      </div>
-
-      <div className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-          Gasto Total
-        </h2>
-        <p className="text-3xl font-bold text-stone-950">
-          {formatCurrency(payload.summary.gastoTotal)}
-        </p>
-        <div className="mt-3 space-y-1.5">
-          {payload.users.map((user) => {
-            const totalPaid =
-              payload.summary.totalesPorUsuario.find(
-                (t) => t.userId === user._id
-              )?.totalPagado || 0;
-            const balance = payload.summary.balancePorUsuario[user._id] || 0;
-
-            return (
-              <div
-                key={user._id}
-                className="flex items-center justify-between text-sm"
-              >
-                <span className="text-stone-600">
-                  {user.nombre} pagó {formatCurrency(totalPaid)}
-                </span>
-                <span
-                  className={`font-semibold ${
-                    balance > 0 ? "text-green-600" : "text-red-600"
-                  }`}
-                >
-                  {balance > 0 ? "+" : ""}{formatCurrency(balance)}
-                </span>
-              </div>
-            );
-          })}
         </div>
       </div>
 
@@ -447,6 +423,42 @@ export function TripDetailScreen() {
           editError={editError}
         />
       </div>
+
+      {pendingDeleteExpenseId ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/50 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-[2rem] bg-white p-5 shadow-[0_20px_80px_rgba(28,25,23,0.32)]">
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">
+                Confirmar eliminación
+              </p>
+              <h2 className="text-2xl font-semibold tracking-tight text-stone-950">
+                ¿Querés eliminar este gasto?
+              </h2>
+              <p className="text-sm leading-6 text-stone-700">
+                Esta acción no se puede deshacer.
+              </p>
+            </div>
+
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={cancelDeleteExpense}
+                className="flex-1 rounded-2xl border border-stone-300 px-4 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDeleteExpense()}
+                disabled={isDeletingId === pendingDeleteExpenseId}
+                className="flex-1 rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeletingId === pendingDeleteExpenseId ? "Eliminando..." : "Sí, eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

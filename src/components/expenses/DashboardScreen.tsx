@@ -38,6 +38,7 @@ export function DashboardScreen() {
   const [isSubmitting, startSubmitTransition] = useTransition();
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [isEditingId, setIsEditingId] = useState<string | null>(null);
+  const [pendingDeleteExpenseId, setPendingDeleteExpenseId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -128,13 +129,22 @@ export function DashboardScreen() {
   }
 
   async function handleDeleteExpense(expenseId: string) {
-    const shouldDelete = window.confirm("¿Querés eliminar este gasto?");
+    setDeleteError("");
+    setPendingDeleteExpenseId(expenseId);
+  }
 
-    if (!shouldDelete) {
+  function cancelDeleteExpense() {
+    setPendingDeleteExpenseId(null);
+  }
+
+  async function confirmDeleteExpense() {
+    const expenseId = pendingDeleteExpenseId;
+
+    if (!expenseId) {
       return;
     }
 
-    setDeleteError("");
+    setPendingDeleteExpenseId(null);
     setIsDeletingId(expenseId);
 
     const response = await fetch(`/api/expenses/${expenseId}`, {
@@ -364,6 +374,42 @@ export function DashboardScreen() {
           onPageChange={setCurrentPage}
         />
       </section>
+
+      {pendingDeleteExpenseId ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/50 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-[2rem] bg-white p-5 shadow-[0_20px_80px_rgba(28,25,23,0.32)]">
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">
+                Confirmar eliminación
+              </p>
+              <h2 className="text-2xl font-semibold tracking-tight text-stone-950">
+                ¿Querés eliminar este gasto?
+              </h2>
+              <p className="text-sm leading-6 text-stone-700">
+                Esta acción no se puede deshacer.
+              </p>
+            </div>
+
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={cancelDeleteExpense}
+                className="flex-1 rounded-2xl border border-stone-300 px-4 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDeleteExpense()}
+                disabled={isDeletingId === pendingDeleteExpenseId}
+                className="flex-1 rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeletingId === pendingDeleteExpenseId ? "Eliminando..." : "Sí, eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

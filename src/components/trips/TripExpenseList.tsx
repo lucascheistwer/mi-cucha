@@ -97,8 +97,6 @@ export function TripExpenseList({
       ? editingCategoria
       : TRIP_EXPENSE_CATEGORIES[0]?.value ?? "";
     const safeCiudad = ciudades.includes(editingCiudad) ? editingCiudad : ciudades[0] ?? editingCiudad;
-    const safeFecha =
-      editingFecha >= tripStartDate && editingFecha <= tripEndDate ? editingFecha : tripStartDate;
     const safePagadoPor = users.some((user) => user._id === editingPagadoPor)
       ? editingPagadoPor
       : users[0]?._id ?? "";
@@ -106,10 +104,10 @@ export function TripExpenseList({
     const wasSaved = await onEditExpense({
       expenseId,
       descripcion: editingDescripcion,
-      monto: Number(editingMonto),
+      monto: Math.round(Number(editingMonto)),
       categoria: safeCategoria,
       ciudad: safeCiudad,
-      fecha: safeFecha,
+      fecha: editingFecha,
       pagadoPor: safePagadoPor,
     });
 
@@ -155,13 +153,13 @@ export function TripExpenseList({
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="block min-w-0 space-y-1.5">
                       <span className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
-                        Monto
+                        Monto (USD)
                       </span>
                       <input
                         type="number"
-                        inputMode="decimal"
+                        inputMode="numeric"
                         min="0"
-                        step="0.01"
+                        step="1"
                         value={editingMonto}
                         onChange={(event) => setEditingMonto(event.target.value)}
                         disabled={isSavingThisExpense}
@@ -177,8 +175,6 @@ export function TripExpenseList({
                         type="date"
                         value={editingFecha}
                         onChange={(event) => setEditingFecha(event.target.value)}
-                        min={tripStartDate}
-                        max={tripEndDate}
                         disabled={isSavingThisExpense}
                         className="w-full min-w-0 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-950 outline-none transition focus:border-teal-600 focus:bg-white"
                       />
@@ -327,7 +323,7 @@ export function TripExpenseList({
                       </div>
 
                       <strong className="shrink-0 text-lg font-semibold tracking-tight text-stone-950">
-                        {formatCurrency(expense.monto)}
+                        {formatCurrency(expense.monto, "USD")}
                       </strong>
                     </div>
 

@@ -123,7 +123,7 @@ export async function PATCH(
     }
 
     expense.descripcion = descripcion;
-    expense.monto = Number(monto.toFixed(2));
+    expense.monto = Math.round(monto);
     expense.categoria = categoria;
     expense.ciudad = ciudad;
     expense.fecha = fecha;

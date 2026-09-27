@@ -5,9 +5,15 @@ import { dbConnect } from "@/lib/dbConnect";
 import { buildTripSummary } from "@/lib/trip-summary";
 import { Trip } from "@/models/Trip";
 import { TripExpense } from "@/models/TripExpense";
+import { TripPayment } from "@/models/TripPayment";
 import { Household } from "@/models/Household";
 import { User } from "@/models/User";
-import type { TripDashboardPayload, TripExpenseListItem, HouseholdUserOption } from "@/types/trip";
+import type {
+  TripDashboardPayload,
+  TripExpenseListItem,
+  TripPaymentListItem,
+  HouseholdUserOption,
+} from "@/types/trip";
 
 export const runtime = "nodejs";
 
@@ -71,6 +77,14 @@ export async function GET(
       .sort({ fecha: -1 })
       .lean();
 
+    const payments = await TripPayment.find({
+      tripId,
+    })
+      .populate("fromUserId", "nombre username _id")
+      .populate("toUserId", "nombre username _id")
+      .sort({ fecha: -1 })
+      .lean();
+
     const formattedUsers: HouseholdUserOption[] = householdUsers.map((u: any) => ({
       _id: u._id.toString(),
       nombre: u.nombre,
@@ -94,6 +108,28 @@ export async function GET(
       },
       createdAt: expense.createdAt.toISOString(),
       updatedAt: expense.updatedAt.toISOString(),
+    }));
+
+    const formattedPayments: TripPaymentListItem[] = payments.map((payment: any) => ({
+      _id: payment._id.toString(),
+      tripId: payment.tripId.toString(),
+      hogarId: payment.hogarId.toString(),
+      fromUserId: payment.fromUserId._id.toString(),
+      toUserId: payment.toUserId._id.toString(),
+      monto: payment.monto,
+      fecha: payment.fecha.toISOString(),
+      fromUser: {
+        _id: payment.fromUserId._id.toString(),
+        nombre: payment.fromUserId.nombre,
+        username: payment.fromUserId.username,
+      },
+      toUser: {
+        _id: payment.toUserId._id.toString(),
+        nombre: payment.toUserId.nombre,
+        username: payment.toUserId.username,
+      },
+      createdAt: payment.createdAt.toISOString(),
+      updatedAt: payment.updatedAt.toISOString(),
     }));
 
     const porcentajesDefecto = household.porcentajesDefecto ?? { user1: 50, user2: 50 };
@@ -120,10 +156,12 @@ export async function GET(
       currentUserId: user._id.toString(),
       users: formattedUsers,
       expenses: formattedExpenses,
+      payments: formattedPayments,
       porcentajesDefecto,
       summary: buildTripSummary({
         users: formattedUsers,
         expenses: formattedExpenses,
+        payments: formattedPayments,
         percentages: porcentajesDefecto,
       }),
     };

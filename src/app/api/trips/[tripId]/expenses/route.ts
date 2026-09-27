@@ -58,7 +58,7 @@ export async function POST(
       tripId,
       hogarId: user.hogarId,
       descripcion,
-      monto: Number(monto),
+      monto: Math.round(Number(monto)),
       categoria,
       ciudad,
       fecha: new Date(fecha),

@@ -34,6 +34,7 @@ const tripExpenseSchema = new Schema(
       type: Number,
       required: true,
       min: 0,
+      set: (value: number) => Math.round(value),
     },
     categoria: {
       type: String,

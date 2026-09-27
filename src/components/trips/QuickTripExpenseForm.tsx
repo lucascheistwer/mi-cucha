@@ -6,13 +6,6 @@ import { TRIP_EXPENSE_CATEGORIES } from "@/lib/trip-expense-categories";
 import type { TripExpenseCategoryValue } from "@/lib/trip-expense-categories";
 import type { HouseholdUserOption } from "@/types/expense";
 
-function getDateBounds(startDate: string, endDate: string) {
-  return {
-    min: startDate,
-    max: endDate,
-  };
-}
-
 type QuickTripExpenseFormProps = {
   users: HouseholdUserOption[];
   currentUserId: string;
@@ -60,14 +53,9 @@ export function QuickTripExpenseForm({
   const [fecha, setFecha] = useState(tripStartDate);
   const [pagadoPor, setPagadoPor] = useState(defaultPayerId);
 
-  const dateBounds = useMemo(() => getDateBounds(tripStartDate, tripEndDate), [tripStartDate, tripEndDate]);
-
   const safeCategoria = categoryOptions.some((option) => option.value === categoria)
     ? categoria
     : categoryOptions[0]?.value ?? "";
-
-  const safeFecha =
-    fecha >= dateBounds.min && fecha <= dateBounds.max ? fecha : tripStartDate;
 
   const safeCiudad = ciudades.includes(ciudad) ? ciudad : ciudades[0] ?? "";
 
@@ -76,10 +64,10 @@ export function QuickTripExpenseForm({
 
     await onCreateExpense({
       descripcion,
-      monto: Number(monto),
+      monto: Math.round(Number(monto)),
       categoria: safeCategoria,
       ciudad: safeCiudad,
-      fecha: safeFecha,
+      fecha,
       pagadoPor,
     });
 
@@ -113,14 +101,14 @@ export function QuickTripExpenseForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="min-w-0 space-y-2">
           <label htmlFor="monto" className="text-sm font-medium text-stone-700">
-            Monto
+            Monto (USD)
           </label>
           <input
             id="monto"
             type="number"
-            inputMode="decimal"
+            inputMode="numeric"
             min="0"
-            step="0.01"
+            step="1"
             value={monto}
             onChange={(event) => setMonto(event.target.value)}
             placeholder="0"
@@ -137,10 +125,8 @@ export function QuickTripExpenseForm({
           <input
             id="fecha"
             type="date"
-            value={safeFecha}
+            value={fecha}
             onChange={(event) => setFecha(event.target.value)}
-            min={dateBounds.min}
-            max={dateBounds.max}
             className="w-full min-w-0 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white sm:text-base"
             disabled={isSubmitting}
             required
