@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+
+import { ListPagination } from "@/components/shared/ListPagination";
+import { sliceOneBasedPage } from "@/lib/list-pagination";
 import type { TripDetail } from "@/types/trip";
 
 type LoadState = {
@@ -16,6 +19,8 @@ export function TripsScreen() {
     error: "",
     isLoading: true,
   });
+  const [activePage, setActivePage] = useState(1);
+  const [finishedPage, setFinishedPage] = useState(1);
 
   useEffect(() => {
     let isMounted = true;
@@ -65,7 +70,7 @@ export function TripsScreen() {
 
   if (state.isLoading) {
     return (
-      <div className="mx-auto w-full max-w-md px-4 py-6">
+      <div className="space-y-4">
         <div className="animate-pulse space-y-4">
           {[...Array(3)].map((_, i) => (
             <div key={i} className="h-24 rounded-2xl bg-stone-200" />
@@ -77,7 +82,7 @@ export function TripsScreen() {
 
   if (state.error) {
     return (
-      <div className="mx-auto w-full max-w-md px-4 py-6">
+      <div className="space-y-4">
         <div className="rounded-2xl bg-rose-50 p-4 text-rose-700">
           {state.error}
         </div>
@@ -85,8 +90,11 @@ export function TripsScreen() {
     );
   }
 
+  const activeSlice = sliceOneBasedPage(activeTrips, activePage);
+  const finishedSlice = sliceOneBasedPage(finishedTrips, finishedPage);
+
   return (
-    <div className="mx-auto w-full max-w-md space-y-6 px-4 py-6">
+    <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-3xl font-bold text-stone-950">Mis Viajes</h1>
@@ -104,11 +112,16 @@ export function TripsScreen() {
 
       {activeTrips.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-stone-500">
-            Viajes Activos
-          </h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-stone-500">
+              Viajes Activos
+            </h2>
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
+              Página {activeSlice.pageNumber} de {activeSlice.totalPages}
+            </p>
+          </div>
           <div className="space-y-2">
-            {activeTrips.map((trip) => (
+            {activeSlice.items.map((trip) => (
               <Link
                 key={trip._id}
                 href={`/viajes/${trip._id}`}
@@ -147,16 +160,33 @@ export function TripsScreen() {
               </Link>
             ))}
           </div>
+          {activeSlice.totalPages > 1 ? (
+            <ListPagination
+              currentPage={activeSlice.pageNumber}
+              totalPages={activeSlice.totalPages}
+              canGoBack={activeSlice.canGoBack}
+              canGoForward={activeSlice.canGoForward}
+              onPrevious={() => setActivePage(activeSlice.pageNumber - 1)}
+              onNext={() => setActivePage(activeSlice.pageNumber + 1)}
+              previousAriaLabel="Ver página anterior de viajes activos"
+              nextAriaLabel="Ver página siguiente de viajes activos"
+            />
+          ) : null}
         </div>
       )}
 
       {finishedTrips.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-stone-500">
-            Viajes Finalizados
-          </h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-stone-500">
+              Viajes Finalizados
+            </h2>
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
+              Página {finishedSlice.pageNumber} de {finishedSlice.totalPages}
+            </p>
+          </div>
           <div className="space-y-2 opacity-75">
-            {finishedTrips.map((trip) => (
+            {finishedSlice.items.map((trip) => (
               <Link
                 key={trip._id}
                 href={`/viajes/${trip._id}`}
@@ -190,6 +220,18 @@ export function TripsScreen() {
               </Link>
             ))}
           </div>
+          {finishedSlice.totalPages > 1 ? (
+            <ListPagination
+              currentPage={finishedSlice.pageNumber}
+              totalPages={finishedSlice.totalPages}
+              canGoBack={finishedSlice.canGoBack}
+              canGoForward={finishedSlice.canGoForward}
+              onPrevious={() => setFinishedPage(finishedSlice.pageNumber - 1)}
+              onNext={() => setFinishedPage(finishedSlice.pageNumber + 1)}
+              previousAriaLabel="Ver página anterior de viajes finalizados"
+              nextAriaLabel="Ver página siguiente de viajes finalizados"
+            />
+          ) : null}
         </div>
       )}
 

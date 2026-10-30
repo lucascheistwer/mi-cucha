@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { buildTripSummary } from "@/lib/trip-summary";
+import { sliceOneBasedPage } from "@/lib/list-pagination";
 import { TRIP_EXPENSE_CATEGORIES } from "@/lib/trip-expense-categories";
 import { QuickTripExpenseForm } from "@/components/trips/QuickTripExpenseForm";
 import { TripExpenseList, type TripExpenseEditInput } from "@/components/trips/TripExpenseList";
@@ -31,6 +32,7 @@ export function TripDetailScreen() {
   const [isEditingId, setIsEditingId] = useState<string | null>(null);
   const [isSubmitting, startSubmitTransition] = useTransition();
   const [pendingDeleteExpenseId, setPendingDeleteExpenseId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     let isMounted = true;
@@ -148,6 +150,7 @@ export function TripDetailScreen() {
             };
           });
 
+          setCurrentPage(1);
           resolve();
         } catch {
           setSubmitError("Error al crear el gasto.");
@@ -311,7 +314,7 @@ export function TripDetailScreen() {
 
   if (state.isLoading) {
     return (
-      <div className="mx-auto w-full max-w-md px-4 py-6">
+      <div className="space-y-4">
         <div className="animate-pulse space-y-4">
           {[...Array(3)].map((_, i) => (
             <div key={i} className="h-24 rounded-2xl bg-stone-200" />
@@ -323,7 +326,7 @@ export function TripDetailScreen() {
 
   if (state.error || !state.payload) {
     return (
-      <div className="mx-auto w-full max-w-md px-4 py-6">
+      <div className="space-y-4">
         <div className="rounded-2xl bg-rose-50 p-4 text-rose-700">
           {state.error || "Error al cargar el viaje"}
         </div>
@@ -333,9 +336,10 @@ export function TripDetailScreen() {
 
   const { payload } = state;
   const tripCategoryValues = TRIP_EXPENSE_CATEGORIES.map((cat) => cat.value);
+  const expensePage = sliceOneBasedPage(payload.expenses, currentPage);
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-6 px-4 py-6">
+    <div className="space-y-4">
       <Link
         href="/viajes"
         className="inline-flex items-center gap-1 text-sm font-medium text-teal-600 hover:text-teal-700"
@@ -406,16 +410,22 @@ export function TripDetailScreen() {
         </div>
       )}
 
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-stone-950">
-          Gastos ({payload.expenses.length})
-        </h2>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <h2 className="text-lg font-semibold text-stone-950">Movimientos del viaje</h2>
+          <span className="text-xs font-medium uppercase tracking-[0.18em] text-stone-500">
+            recientes primero
+          </span>
+        </div>
         <TripExpenseList
-          expenses={payload.expenses}
+          expenses={expensePage.items}
           users={payload.users}
           ciudades={payload.trip.ciudades}
           tripStartDate={payload.trip.fechaInicio}
           tripEndDate={payload.trip.fechaFin}
+          currentPage={expensePage.pageNumber}
+          totalPages={expensePage.totalPages}
+          onPageChange={setCurrentPage}
           onDeleteExpense={handleDeleteExpense}
           onEditExpense={handleEditExpense}
           isDeletingId={isDeletingId}

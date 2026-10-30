@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 
 import { withUpdatedDashboardSummary } from "@/lib/dashboard-summary";
 import { formatMonthLabel } from "@/lib/date-helpers";
+import { sliceOneBasedPage } from "@/lib/list-pagination";
 import { ExpenseList } from "@/components/expenses/ExpenseList";
 import { QuickExpenseForm } from "@/components/expenses/QuickExpenseForm";
 import type { ExpenseCategoryValue } from "@/lib/expense-categories";
@@ -11,8 +12,6 @@ import type {
   ExpenseListItem,
   ExpensesDashboardPayload,
 } from "@/types/expense";
-
-const EXPENSES_PER_PAGE = 5;
 
 type LoadState = {
   payload: ExpensesDashboardPayload | null;
@@ -268,15 +267,7 @@ export function DashboardScreen() {
     );
   }
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(state.payload.expenses.length / EXPENSES_PER_PAGE)
-  );
-  const safeCurrentPage = Math.min(currentPage, totalPages);
-  const paginatedExpenses = state.payload.expenses.slice(
-    (safeCurrentPage - 1) * EXPENSES_PER_PAGE,
-    safeCurrentPage * EXPENSES_PER_PAGE
-  );
+  const expensePage = sliceOneBasedPage(state.payload.expenses, currentPage);
 
   return (
     <div className="space-y-4">
@@ -358,10 +349,10 @@ export function DashboardScreen() {
         ) : null}
 
         <ExpenseList
-          expenses={paginatedExpenses}
+          expenses={expensePage.items}
           users={state.payload.users}
-          currentPage={safeCurrentPage}
-          totalPages={totalPages}
+          currentPage={expensePage.pageNumber}
+          totalPages={expensePage.totalPages}
           monthKey={state.payload.currentMonth}
           availableCategories={
             state.payload.household.categoriasHabilitadas as ExpenseCategoryValue[]

@@ -2,8 +2,19 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 
+import { ListPagination } from "@/components/shared/ListPagination";
+import {
+  BalanceOverview,
+  CategoryBreakdown,
+  DebtSettlementCard,
+  PaymentsPanel,
+  PersonBalanceList,
+  SummaryPanel,
+} from "@/components/shared/SummaryShells";
+import { formatSignedBalance } from "@/lib/balance-format";
 import { formatExpenseDate, formatMonthLabel, getTodayInputValue } from "@/lib/date-helpers";
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
+import { LIST_PAGE_SIZE, slicePage } from "@/lib/list-pagination";
 import { formatCurrency } from "@/lib/utils";
 import type {
   ActiveDebtSettlement,
@@ -32,29 +43,13 @@ type FinalizeDialogState = {
 };
 
 const ALL_CATEGORY_FILTER = "all";
-const MAX_VISIBLE_MONTHS = 5;
-const MAX_VISIBLE_FILTERED_EXPENSES = 5;
-const MAX_VISIBLE_STATS_ITEMS = 5;
+const MAX_VISIBLE_MONTHS = LIST_PAGE_SIZE;
 const EXPENSE_CATEGORY_LABELS = new Map<string, string>(
   EXPENSE_CATEGORIES.map((category) => [category.value, category.label])
 );
 
 async function parseJson<T>(response: Response) {
   return (await response.json().catch(() => null)) as T | null;
-}
-
-function formatSignedBalance(amount: number | null) {
-  if (amount === null) {
-    return null;
-  }
-
-  if (Math.abs(amount) < 0.01) {
-    return "Al día";
-  }
-
-  return amount > 0
-    ? `${formatCurrency(amount)} a favor`
-    : `${formatCurrency(Math.abs(amount))} por cubrir`;
 }
 
 function formatSummaryTitle(monthKey: string) {
@@ -289,11 +284,7 @@ export function StatsScreen() {
       return [];
     }
 
-    const totalPages = Math.max(1, Math.ceil(payload.availableMonths.length / MAX_VISIBLE_MONTHS));
-    const safeHistoryPage = Math.max(0, Math.min(historyPage, totalPages - 1));
-    const startIndex = safeHistoryPage * MAX_VISIBLE_MONTHS;
-
-    return payload.availableMonths.slice(startIndex, startIndex + MAX_VISIBLE_MONTHS);
+    return slicePage(payload.availableMonths, historyPage, MAX_VISIBLE_MONTHS).items;
   }, [historyPage, state.payload]);
 
   function openFinalizeDialog(message: string, settlement: ActiveDebtSettlement | null) {
@@ -509,52 +500,6 @@ export function StatsScreen() {
     activeCategoryFilter === ALL_CATEGORY_FILTER
       ? payload.summary.gastoTotal
       : selectedCategorySummary?.total ?? 0;
-  const totalSpendingRowsPages = Math.max(
-    1,
-    Math.ceil(spendingRows.length / MAX_VISIBLE_STATS_ITEMS)
-  );
-  const safeSpendingRowsPage = Math.max(
-    0,
-    Math.min(spendingRowsPage, totalSpendingRowsPages - 1)
-  );
-  const currentSpendingRowsPage = safeSpendingRowsPage + 1;
-  const paginatedSpendingRows = spendingRows.slice(
-    safeSpendingRowsPage * MAX_VISIBLE_STATS_ITEMS,
-    safeSpendingRowsPage * MAX_VISIBLE_STATS_ITEMS + MAX_VISIBLE_STATS_ITEMS
-  );
-  const totalPaymentsPages = Math.max(1, Math.ceil(payments.length / MAX_VISIBLE_STATS_ITEMS));
-  const safePaymentsPage = Math.max(0, Math.min(paymentsPage, totalPaymentsPages - 1));
-  const currentPaymentsPage = safePaymentsPage + 1;
-  const paginatedPayments = payments.slice(
-    safePaymentsPage * MAX_VISIBLE_STATS_ITEMS,
-    safePaymentsPage * MAX_VISIBLE_STATS_ITEMS + MAX_VISIBLE_STATS_ITEMS
-  );
-  const totalCategoryPages = Math.max(
-    1,
-    Math.ceil(categorySummaries.length / MAX_VISIBLE_STATS_ITEMS)
-  );
-  const safeCategoriesPage = Math.max(0, Math.min(categoriesPage, totalCategoryPages - 1));
-  const currentCategoriesPage = safeCategoriesPage + 1;
-  const paginatedCategorySummaries = categorySummaries.slice(
-    safeCategoriesPage * MAX_VISIBLE_STATS_ITEMS,
-    safeCategoriesPage * MAX_VISIBLE_STATS_ITEMS + MAX_VISIBLE_STATS_ITEMS
-  );
-  const totalFilteredExpensePages = Math.max(
-    1,
-    Math.ceil(filteredExpenses.length / MAX_VISIBLE_FILTERED_EXPENSES)
-  );
-  const safeFilteredExpensesPage = Math.max(
-    0,
-    Math.min(filteredExpensesPage, totalFilteredExpensePages - 1)
-  );
-  const currentFilteredExpensesPage = safeFilteredExpensesPage + 1;
-  const canMoveToPreviousFilteredExpensesPage = safeFilteredExpensesPage > 0;
-  const canMoveToNextFilteredExpensesPage =
-    safeFilteredExpensesPage < totalFilteredExpensePages - 1;
-  const paginatedFilteredExpenses = filteredExpenses.slice(
-    safeFilteredExpensesPage * MAX_VISIBLE_FILTERED_EXPENSES,
-    safeFilteredExpensesPage * MAX_VISIBLE_FILTERED_EXPENSES + MAX_VISIBLE_FILTERED_EXPENSES
-  );
 
   return (
     <div className="space-y-4">
@@ -640,30 +585,20 @@ export function StatsScreen() {
             ) : null}
 
             {totalHistoryPages > 1 ? (
-              <div className="mt-3 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setHistoryPage((currentPage) => Math.max(currentPage - 1, 0))}
-                  disabled={!canMoveToPreviousHistoryPage}
-                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label="Ver página anterior de históricos"
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setHistoryPage((currentPage) =>
-                      Math.min(currentPage + 1, totalHistoryPages - 1)
-                    )
-                  }
-                  disabled={!canMoveToNextHistoryPage}
-                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label="Ver página siguiente de históricos"
-                >
-                  Siguiente
-                </button>
-              </div>
+              <ListPagination
+                currentPage={currentHistoryPage}
+                totalPages={totalHistoryPages}
+                canGoBack={canMoveToPreviousHistoryPage}
+                canGoForward={canMoveToNextHistoryPage}
+                onPrevious={() => setHistoryPage((currentPage) => Math.max(currentPage - 1, 0))}
+                onNext={() =>
+                  setHistoryPage((currentPage) =>
+                    Math.min(currentPage + 1, totalHistoryPages - 1)
+                  )
+                }
+                previousAriaLabel="Ver página anterior de históricos"
+                nextAriaLabel="Ver página siguiente de históricos"
+              />
             ) : null}
           </div>
 
@@ -690,186 +625,70 @@ export function StatsScreen() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-[1.9rem] border border-stone-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(247,244,240,0.98))] p-5 text-stone-950 shadow-[0_18px_50px_rgba(28,25,23,0.12)]">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr),minmax(16rem,18rem)]">
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700">
-              Balance del mes
-            </p>
-            <strong className="block text-4xl font-semibold text-stone-950">
-              {formatCurrency(payload.summary.gastoTotal)}
-            </strong>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-[1.2rem] border border-stone-200 bg-white px-4 py-3 shadow-[0_10px_24px_rgba(28,25,23,0.04)]">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">gastos</p>
-                <p className="mt-1 text-lg font-semibold text-stone-950">{payload.expenses.length}</p>
-              </div>
-              <div className="rounded-[1.2rem] border border-teal-100 bg-teal-50/70 px-4 py-3 shadow-[0_10px_24px_rgba(13,148,136,0.06)]">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-teal-700">pagos</p>
-                <p className="mt-1 text-lg font-semibold text-teal-950">{payload.summary.paymentCount}</p>
-                <p className="text-xs text-teal-800">
-                  {formatCurrency(payload.summary.paymentTotal)} cargados
-                </p>
-              </div>
-            </div>
-          </div>
-          <div
-            className={`rounded-[1.5rem] border px-5 py-4 shadow-[0_14px_32px_rgba(28,25,23,0.08)] ${
-              hasActiveSettlement
-                ? "border-amber-200 bg-[linear-gradient(180deg,rgba(255,251,235,1),rgba(254,243,199,0.92))]"
-                : "border-teal-200 bg-[linear-gradient(180deg,rgba(240,253,250,1),rgba(204,251,241,0.85))]"
-            }`}
-          >
-            <p
-              className={`text-[11px] uppercase tracking-[0.2em] ${
-                hasActiveSettlement ? "text-amber-700" : "text-teal-700"
-              }`}
-            >
-              pendiente
-            </p>
-            <p
-              className={`mt-2 text-3xl font-semibold ${
-                hasActiveSettlement ? "text-amber-950" : "text-teal-950"
-              }`}
-            >
-              {activeSettlement
-                ? formatCurrency(activeSettlement.amount)
-                : "Al día"}
-            </p>
-            <p
-              className={`mt-2 text-sm leading-6 ${
-                hasActiveSettlement ? "text-amber-900" : "text-teal-900"
-              }`}
-            >
-              {hasActiveSettlement
-                ? "Todavía queda un ajuste pendiente entre personas."
-                : "No hay deuda activa para este cierre."}
-            </p>
-          </div>
-        </div>
+      <SummaryPanel>
+        <BalanceOverview
+          eyebrow="Balance del mes"
+          total={formatCurrency(payload.summary.gastoTotal)}
+          primaryStat={{ label: "gastos", value: payload.expenses.length }}
+          secondaryStat={{
+            label: "pagos",
+            value: payload.summary.paymentCount,
+            detail: `${formatCurrency(payload.summary.paymentTotal)} cargados`,
+          }}
+          pending={{
+            hasPending: hasActiveSettlement,
+            value: activeSettlement ? formatCurrency(activeSettlement.amount) : "Al día",
+            detail: hasActiveSettlement
+              ? "Todavía queda un ajuste pendiente entre personas."
+              : "No hay deuda activa para este cierre.",
+          }}
+        />
 
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-500">
-            Personas
-          </p>
-          <p className="text-xs font-medium text-stone-500">
-            Página {currentSpendingRowsPage} de {totalSpendingRowsPages}
-          </p>
-        </div>
+        <PersonBalanceList
+          people={spendingRows.map((user) => ({
+            id: user._id,
+            name: user.nombre,
+            responsibilityLabel:
+              user.porcentajeResponsabilidad !== null
+                ? `Le toca ${user.porcentajeResponsabilidad}% del mes`
+                : "Sin distribución configurable disponible",
+            paidLabel: formatCurrency(user.totalPagado),
+            targetLabel:
+              user.montoObjetivo !== null ? `objetivo ${formatCurrency(user.montoObjetivo)}` : null,
+            balanceLabel: formatSignedBalance(user.saldoNeto),
+          }))}
+          page={spendingRowsPage}
+          onPageChange={setSpendingRowsPage}
+        />
 
-        <div className="mt-3 grid gap-2">
-          {paginatedSpendingRows.map((user) => (
-            <div
-              key={user._id}
-              className="rounded-[1.2rem] border border-stone-200 bg-white/90 px-4 py-3 shadow-[0_10px_24px_rgba(28,25,23,0.04)]"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-stone-950">{user.nombre}</p>
-                  <p className="text-xs uppercase tracking-[0.16em] text-stone-500">
-                    {user.porcentajeResponsabilidad !== null
-                      ? `Le toca ${user.porcentajeResponsabilidad}% del mes`
-                      : "Sin distribución configurable disponible"}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-stone-950">
-                    {formatCurrency(user.totalPagado)}
-                  </p>
-                  {user.montoObjetivo !== null ? (
-                    <p className="text-xs text-stone-500">
-                      objetivo {formatCurrency(user.montoObjetivo)}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
+        <DebtSettlementCard
+          hasSettlement={hasActiveSettlement}
+          settlement={
+            activeSettlement
+              ? {
+                  fromNombre: activeSettlement.fromNombre,
+                  toNombre: activeSettlement.toNombre,
+                  amountLabel: formatCurrency(activeSettlement.amount),
+                }
+              : null
+          }
+          message={payload.summary.activeDebt.message}
+          settledHeadline="Nadie le debe a nadie en este mes."
+        />
 
-              {formatSignedBalance(user.saldoNeto) ? (
-                <p className="mt-2 text-xs font-medium text-teal-700">
-                  {formatSignedBalance(user.saldoNeto)}
-                </p>
-              ) : null}
-            </div>
-          ))}
-        </div>
-
-        {spendingRows.length > MAX_VISIBLE_STATS_ITEMS ? (
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setSpendingRowsPage((currentPage) => Math.max(currentPage - 1, 0))}
-              disabled={safeSpendingRowsPage === 0}
-              className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="Ver página anterior de personas"
-            >
-              Anterior
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setSpendingRowsPage((currentPage) =>
-                  Math.min(currentPage + 1, totalSpendingRowsPages - 1)
-                )
-              }
-              disabled={safeSpendingRowsPage >= totalSpendingRowsPages - 1}
-              className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="Ver página siguiente de personas"
-            >
-              Siguiente
-            </button>
-          </div>
-        ) : null}
-
-        <div
-          className={`mt-4 rounded-[1.4rem] border px-4 py-4 ${
-            hasActiveSettlement
-              ? "border-amber-200 bg-amber-50"
-              : "border-teal-200 bg-teal-50"
-          }`}
+        <PaymentsPanel
+          title="Pagos del resumen"
+          registeredCount={payments.length}
+          page={paymentsPage}
+          onPageChange={setPaymentsPage}
+          rows={payments.map((payment) => ({
+            id: payment._id,
+            title: `${payment.fromUser?.nombre ?? findUserName(payload.users, payment.fromUserId)} pagó a ${payment.toUser?.nombre ?? findUserName(payload.users, payment.toUserId)}`,
+            meta: formatExpenseDate(payment.fecha),
+            amount: formatCurrency(payment.monto),
+          }))}
+          emptyMessage="Todavía no hay pagos cargados para este resumen."
         >
-          {activeSettlement ? (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
-                Transferencia sugerida
-              </p>
-              <p className="text-lg font-semibold leading-7 text-amber-950">
-                {activeSettlement.fromNombre} le debe {formatCurrency(activeSettlement.amount)} a{" "}
-                {activeSettlement.toNombre}
-              </p>
-              <p className="text-sm leading-6 text-amber-900">
-                {payload.summary.activeDebt.message}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">
-                Resumen equilibrado
-              </p>
-              <p className="text-lg font-semibold leading-7 text-teal-950">
-                Nadie le debe a nadie en este mes.
-              </p>
-              <p className="text-sm leading-6 text-teal-900">
-                {payload.summary.activeDebt.message}
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4 rounded-[1.3rem] border border-stone-200 bg-stone-950 px-4 py-4 text-white shadow-[0_14px_32px_rgba(28,25,23,0.12)]">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-stone-300">
-              Pagos del resumen
-            </h2>
-            <div className="text-right">
-              <p className="text-xs text-stone-400">
-                {payments.length} registrados
-              </p>
-              <p className="mt-1 text-xs text-stone-500">
-                Página {currentPaymentsPage} de {totalPaymentsPages}
-              </p>
-            </div>
-          </div>
-
           <form onSubmit={handleCreatePayment} className="mt-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="space-y-1.5 text-sm text-stone-200">
@@ -988,264 +807,37 @@ export function StatsScreen() {
               {paymentFeedback}
             </p>
           ) : null}
+        </PaymentsPanel>
+      </SummaryPanel>
 
-          <div className="mt-4 space-y-2">
-            {payments.length > 0 ? (
-              paginatedPayments.map((payment) => (
-                <div
-                  key={payment._id}
-                  className="rounded-[1.2rem] border border-white/10 bg-white/8 px-4 py-3"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-white">
-                        {payment.fromUser?.nombre ?? findUserName(payload.users, payment.fromUserId)} pagó a {payment.toUser?.nombre ?? findUserName(payload.users, payment.toUserId)}
-                      </p>
-                      <p className="text-xs uppercase tracking-[0.16em] text-stone-400">
-                        {formatExpenseDate(payment.fecha)}
-                      </p>
-                    </div>
-                    <strong className="text-sm font-semibold text-teal-300">
-                      {formatCurrency(payment.monto)}
-                    </strong>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="rounded-[1.2rem] border border-dashed border-white/10 px-4 py-4 text-sm text-stone-300">
-                Todavía no hay pagos cargados para este resumen.
-              </p>
-            )}
-          </div>
-
-          {payments.length > MAX_VISIBLE_STATS_ITEMS ? (
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPaymentsPage((currentPage) => Math.max(currentPage - 1, 0))}
-                disabled={safePaymentsPage === 0}
-                className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-100 transition hover:border-white/25 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Ver página anterior de pagos"
-              >
-                Anterior
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setPaymentsPage((currentPage) =>
-                    Math.min(currentPage + 1, totalPaymentsPages - 1)
-                  )
-                }
-                disabled={safePaymentsPage >= totalPaymentsPages - 1}
-                className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-100 transition hover:border-white/25 hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Ver página siguiente de pagos"
-              >
-                Siguiente
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight text-stone-950">
-              Categorías
-            </h2>
-            <p className="mt-1 text-sm text-stone-500">
-              {selectedCategoryLabel} · {filteredExpenses.length} gastos
-            </p>
-            <p className="mt-1 text-xs text-stone-500">
-              Página {currentCategoriesPage} de {totalCategoryPages}
-            </p>
-          </div>
-          <span className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
-            {formatCurrency(selectedExpensesTotal)}
-          </span>
-        </div>
-
-        {categorySummaries.length > 0 ? (
-          <>
-            <div className="mt-4 space-y-3">
-              <button
-                type="button"
-                onClick={() => handleSelectCategory(ALL_CATEGORY_FILTER)}
-                aria-pressed={activeCategoryFilter === ALL_CATEGORY_FILTER}
-                className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
-                  activeCategoryFilter === ALL_CATEGORY_FILTER
-                    ? "border-teal-300 bg-teal-50 shadow-[0_12px_28px_rgba(13,148,136,0.12)]"
-                    : "border-stone-200 bg-white/80 hover:border-stone-300"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3 text-sm">
-                  <div className="min-w-0">
-                    <span className="block truncate font-semibold text-stone-900">
-                      Todas las categorías
-                    </span>
-                    <span className="mt-0.5 block text-xs text-stone-500">
-                      {payload.expenses.length} gastos · 100% del mes
-                    </span>
-                  </div>
-                  <span className="shrink-0 font-semibold text-stone-700">
-                    {formatCurrency(payload.summary.gastoTotal)}
-                  </span>
-                </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200">
-                  <div className="h-full w-full rounded-full bg-teal-500 transition-[width]" />
-                </div>
-              </button>
-
-              {paginatedCategorySummaries.map((category) => {
-                const isSelected = activeCategoryFilter === category.categoria;
-                const categoryExpenseCount = expenseCountByCategory.get(category.categoria) ?? 0;
-
-                return (
-                  <button
-                    key={category.categoria}
-                    type="button"
-                    onClick={() => handleSelectCategory(category.categoria)}
-                    aria-pressed={isSelected}
-                    className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
-                      isSelected
-                        ? "border-teal-300 bg-teal-50 shadow-[0_12px_28px_rgba(13,148,136,0.12)]"
-                        : "border-stone-200 bg-white/80 hover:border-stone-300"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3 text-sm">
-                      <div className="min-w-0">
-                        <span className="block truncate font-semibold text-stone-900">
-                          {category.icon} {category.label}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-stone-500">
-                          {categoryExpenseCount} gastos · {category.percentage}% del mes
-                        </span>
-                      </div>
-                      <span className="shrink-0 font-semibold text-stone-700">
-                        {formatCurrency(category.total)}
-                      </span>
-                    </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200">
-                      <div
-                        className="h-full rounded-full bg-teal-500 transition-[width]"
-                        style={{
-                          width: `${Math.min(Math.max(category.percentage, 6), 100)}%`,
-                        }}
-                      />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {categorySummaries.length > MAX_VISIBLE_STATS_ITEMS ? (
-              <div className="mt-3 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCategoriesPage((currentPage) => Math.max(currentPage - 1, 0))}
-                  disabled={safeCategoriesPage === 0}
-                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label="Ver página anterior de categorías"
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCategoriesPage((currentPage) =>
-                      Math.min(currentPage + 1, totalCategoryPages - 1)
-                    )
-                  }
-                  disabled={safeCategoriesPage >= totalCategoryPages - 1}
-                  className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label="Ver página siguiente de categorías"
-                >
-                  Siguiente
-                </button>
-              </div>
-            ) : null}
-
-            <div className="mt-5 rounded-[1.4rem] border border-stone-200 bg-stone-50 px-4 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-600">
-                    Gastos filtrados
-                  </h3>
-                  <p className="mt-1 text-xs text-stone-500">
-                    Página {currentFilteredExpensesPage} de {totalFilteredExpensePages}
-                  </p>
-                </div>
-                <span className="text-xs font-medium text-stone-500">{filteredExpenses.length}</span>
-              </div>
-
-              {filteredExpenses.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {paginatedFilteredExpenses.map((expense) => (
-                    <article
-                      key={expense._id}
-                      className="rounded-[1.1rem] border border-white bg-white px-3 py-3 shadow-[0_8px_22px_rgba(28,25,23,0.06)]"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
-                            {formatExpenseDate(expense.fecha)} · {expense.pagadoPorDetalle?.nombre ?? findUserName(payload.users, expense.pagadoPor)}
-                          </p>
-                          <h4 className="mt-1 truncate text-sm font-semibold text-stone-950">
-                            {expense.descripcion}
-                          </h4>
-                        </div>
-                        <strong className="shrink-0 text-sm font-semibold text-stone-950">
-                          {formatCurrency(expense.monto)}
-                        </strong>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-3 rounded-[1.1rem] border border-dashed border-stone-300 px-4 py-5 text-sm text-stone-500">
-                  Sin gastos para este filtro.
-                </p>
-              )}
-
-              {filteredExpenses.length > MAX_VISIBLE_FILTERED_EXPENSES ? (
-                <>
-                  <p className="mt-3 text-xs text-stone-500">
-                    Mostrando {paginatedFilteredExpenses.length} de {filteredExpenses.length} gastos.
-                  </p>
-                  <div className="mt-3 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setFilteredExpensesPage((currentPage) => Math.max(currentPage - 1, 0))
-                      }
-                      disabled={!canMoveToPreviousFilteredExpensesPage}
-                      className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label="Ver página anterior de gastos filtrados"
-                    >
-                      Anterior
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setFilteredExpensesPage((currentPage) =>
-                          Math.min(currentPage + 1, totalFilteredExpensePages - 1)
-                        )
-                      }
-                      disabled={!canMoveToNextFilteredExpensesPage}
-                      className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label="Ver página siguiente de gastos filtrados"
-                    >
-                      Siguiente
-                    </button>
-                  </div>
-                </>
-              ) : null}
-            </div>
-          </>
-        ) : (
-          <p className="mt-4 text-sm text-stone-600">Sin categorías registradas.</p>
-        )}
-      </section>
+      <CategoryBreakdown
+        scopeLabel="del mes"
+        totalCount={payload.expenses.length}
+        totalAmount={payload.summary.gastoTotal}
+        categories={categorySummaries.map((category) => ({
+          key: category.categoria,
+          icon: category.icon,
+          label: category.label,
+          total: category.total,
+          percentage: category.percentage,
+          count: expenseCountByCategory.get(category.categoria) ?? 0,
+        }))}
+        selectedKey={activeCategoryFilter}
+        allKey={ALL_CATEGORY_FILTER}
+        selectedLabel={selectedCategoryLabel}
+        selectedTotal={selectedExpensesTotal}
+        filteredExpenses={filteredExpenses.map((expense) => ({
+          id: expense._id,
+          meta: `${formatExpenseDate(expense.fecha)} · ${expense.pagadoPorDetalle?.nombre ?? findUserName(payload.users, expense.pagadoPor)}`,
+          title: expense.descripcion,
+          amount: expense.monto,
+        }))}
+        onSelect={handleSelectCategory}
+        categoryPage={categoriesPage}
+        onCategoryPageChange={setCategoriesPage}
+        filteredPage={filteredExpensesPage}
+        onFilteredPageChange={setFilteredExpensesPage}
+      />
 
       {finalizeDialog.isOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/50 p-4 sm:items-center">

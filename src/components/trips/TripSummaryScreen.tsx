@@ -3,12 +3,23 @@
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { formatCurrency } from "@/lib/utils";
+
+import {
+  BalanceOverview,
+  CategoryBreakdown,
+  DebtSettlementCard,
+  MeterList,
+  PaymentsPanel,
+  PersonBalanceList,
+  SummaryPanel,
+} from "@/components/shared/SummaryShells";
+import { TripSubNav } from "@/components/trips/TripSubNav";
+import { formatSignedBalance } from "@/lib/balance-format";
 import { formatExpenseDate, getTodayInputValue } from "@/lib/date-helpers";
 import { buildTripSummary } from "@/lib/trip-summary";
 import { TRIP_EXPENSE_CATEGORIES } from "@/lib/trip-expense-categories";
-import { TripSubNav } from "@/components/trips/TripSubNav";
-import type { TripDashboardPayload, TripPaymentListItem } from "@/types/trip";
+import { formatCurrency } from "@/lib/utils";
+import type { TripDashboardPayload, TripExpenseListItem, TripPaymentListItem } from "@/types/trip";
 
 type LoadState = {
   payload: TripDashboardPayload | null;
@@ -23,7 +34,7 @@ type TripPaymentFormState = {
   fecha: string;
 };
 
-const ALL_CATEGORY_FILTER = "__all__";
+const ALL_CATEGORY_FILTER = "all";
 
 function buildDefaultTripPaymentForm(payload: TripDashboardPayload | null): TripPaymentFormState {
   const settlement = payload?.summary.activeDebt.settlement;
@@ -38,6 +49,12 @@ function buildDefaultTripPaymentForm(payload: TripDashboardPayload | null): Trip
     monto: settlement?.amount ? `${settlement.amount}` : "",
     fecha: getTodayInputValue(),
   };
+}
+
+function sortExpensesByNewest(firstExpense: TripExpenseListItem, secondExpense: TripExpenseListItem) {
+  const dateDiff = new Date(secondExpense.fecha).getTime() - new Date(firstExpense.fecha).getTime();
+
+  return dateDiff || new Date(secondExpense.createdAt).getTime() - new Date(firstExpense.createdAt).getTime();
 }
 
 export function TripSummaryScreen() {
@@ -55,6 +72,22 @@ export function TripSummaryScreen() {
   const [paymentFeedback, setPaymentFeedback] = useState("");
   const [isSubmittingPayment, startPaymentTransition] = useTransition();
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>(ALL_CATEGORY_FILTER);
+  const [peoplePage, setPeoplePage] = useState(0);
+  const [paymentsPage, setPaymentsPage] = useState(0);
+  const [categoriesPage, setCategoriesPage] = useState(0);
+  const [filteredExpensesPage, setFilteredExpensesPage] = useState(0);
+  const [citiesPage, setCitiesPage] = useState(0);
+  const [seenTripId, setSeenTripId] = useState(tripId);
+
+  if (seenTripId !== tripId) {
+    setSeenTripId(tripId);
+    setPeoplePage(0);
+    setPaymentsPage(0);
+    setCategoriesPage(0);
+    setFilteredExpensesPage(0);
+    setCitiesPage(0);
+    setActiveCategoryFilter(ALL_CATEGORY_FILTER);
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -83,6 +116,8 @@ export function TripSummaryScreen() {
         }
 
         setPaymentForm(buildDefaultTripPaymentForm(data));
+        setPaymentError("");
+        setPaymentFeedback("");
         setState({ payload: data, error: "", isLoading: false });
       } catch {
         if (isMounted) {
@@ -112,7 +147,9 @@ export function TripSummaryScreen() {
         .filter((exp) => exp.categoria === cat.value)
         .reduce((sum, exp) => sum + exp.monto, 0);
       return {
-        ...cat,
+        key: cat.value,
+        icon: cat.icon,
+        label: cat.label,
         total,
         count: payload.expenses.filter((exp) => exp.categoria === cat.value).length,
         percentage:
@@ -132,7 +169,8 @@ export function TripSummaryScreen() {
           .filter((exp) => exp.ciudad === city)
           .reduce((sum, exp) => sum + exp.monto, 0);
         return {
-          nombre: city,
+          id: city,
+          label: `📍 ${city}`,
           total,
           percentage:
             payload.summary.gastoTotal > 0
@@ -141,15 +179,33 @@ export function TripSummaryScreen() {
         };
       })
       .filter((city) => city.total > 0)
-      .sort((a, b) => b.total - a.total);
+      .sort((firstCity, secondCity) => secondCity.total - firstCity.total);
   }, [payload]);
 
   const filteredExpenses = useMemo(() => {
     if (!payload) return [];
-    if (activeCategoryFilter === ALL_CATEGORY_FILTER) return payload.expenses;
 
-    return payload.expenses.filter((exp) => exp.categoria === activeCategoryFilter);
+    const visibleExpenses =
+      activeCategoryFilter === ALL_CATEGORY_FILTER
+        ? payload.expenses
+        : payload.expenses.filter((exp) => exp.categoria === activeCategoryFilter);
+
+    return [...visibleExpenses].sort(sortExpensesByNewest);
   }, [payload, activeCategoryFilter]);
+
+  const selectedCategory = expensesByCategory.find((category) => category.key === activeCategoryFilter);
+  const selectedCategoryLabel = selectedCategory
+    ? `${selectedCategory.icon} ${selectedCategory.label}`
+    : "Todas";
+  const selectedExpensesTotal =
+    activeCategoryFilter === ALL_CATEGORY_FILTER
+      ? payload?.summary.gastoTotal ?? 0
+      : selectedCategory?.total ?? 0;
+
+  function handleSelectCategory(categoryKey: string) {
+    setFilteredExpensesPage(0);
+    setActiveCategoryFilter(categoryKey);
+  }
 
   async function handleCreatePayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -211,6 +267,7 @@ export function TripSummaryScreen() {
           };
         });
 
+        setPaymentsPage(0);
         setPaymentFeedback("Pago cargado en el viaje.");
         setPaymentForm((currentForm) => ({ ...currentForm, monto: "" }));
       } catch {
@@ -221,34 +278,50 @@ export function TripSummaryScreen() {
 
   if (state.isLoading) {
     return (
-      <div className="mx-auto w-full max-w-md px-4 py-6">
-        <div className="animate-pulse space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-24 rounded-2xl bg-stone-200" />
-          ))}
-        </div>
+      <div className="space-y-4">
+        <div className="h-48 animate-pulse rounded-[2rem] bg-white/70" />
+        <div className="h-72 animate-pulse rounded-[2rem] bg-white/60" />
       </div>
     );
   }
 
   if (state.error || !payload) {
     return (
-      <div className="mx-auto w-full max-w-md px-4 py-6">
-        <div className="rounded-2xl bg-rose-50 p-4 text-rose-700">
-          {state.error || "Error al cargar el viaje"}
-        </div>
-      </div>
+      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 px-5 py-6 text-rose-800">
+        <h1 className="text-lg font-semibold">No pudimos abrir el resumen.</h1>
+        <p className="mt-2 text-sm leading-6">{state.error || "Intentá recargar la página."}</p>
+      </section>
     );
   }
 
-  const selectedCategoryLabel =
-    activeCategoryFilter === ALL_CATEGORY_FILTER
-      ? "Todas las categorías"
-      : TRIP_EXPENSE_CATEGORIES.find((cat) => cat.value === activeCategoryFilter)?.label ??
-        "Categoría";
+  const activeSettlement = payload.summary.activeDebt.settlement;
+  const hasActiveSettlement = Boolean(activeSettlement);
+  const percentages = payload.summary.activeDebt.percentages;
+  const people = payload.users.map((user, index) => {
+    const totalPagado =
+      payload.summary.totalesPorUsuario.find((item) => item.userId === user._id)?.totalPagado ?? 0;
+    const percentage = percentages ? (index === 0 ? percentages.user1 : percentages.user2) : null;
+    const target =
+      percentage === null ? null : Math.round((payload.summary.gastoTotal * percentage) / 100);
+
+    return {
+      id: user._id,
+      name: user.nombre,
+      responsibilityLabel:
+        percentage !== null
+          ? `Le toca ${percentage}% del viaje`
+          : "Sin distribución configurable disponible",
+      paidLabel: formatCurrency(totalPagado, "USD"),
+      targetLabel: target !== null ? `objetivo ${formatCurrency(target, "USD")}` : null,
+      balanceLabel: formatSignedBalance(
+        percentages ? payload.summary.balancePorUsuario[user._id] ?? 0 : null,
+        "USD"
+      ),
+    };
+  });
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-6 px-4 py-6">
+    <div className="space-y-4">
       <Link
         href="/viajes"
         className="inline-flex items-center gap-1 text-sm font-medium text-teal-600 hover:text-teal-700"
@@ -258,352 +331,221 @@ export function TripSummaryScreen() {
 
       <TripSubNav tripId={tripId} />
 
-      <div>
-        <h1 className="text-3xl font-bold text-stone-950">Resumen</h1>
-        <p className="mt-1 text-sm text-stone-600">{payload.trip.nombre}</p>
-      </div>
-
-      <div className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-          Gasto Total
-        </h2>
-        <p className="text-3xl font-bold text-stone-950">
-          {formatCurrency(payload.summary.gastoTotal, "USD")}
-        </p>
-        <div className="mt-3 space-y-1.5">
-          {payload.users.map((user) => {
-            const totalPaid =
-              payload.summary.totalesPorUsuario.find(
-                (t) => t.userId === user._id
-              )?.totalPagado || 0;
-            const balance = payload.summary.balancePorUsuario[user._id] || 0;
-
-            return (
-              <div
-                key={user._id}
-                className="flex items-center justify-between text-sm"
-              >
-                <span className="text-stone-600">
-                  {user.nombre} pagó {formatCurrency(totalPaid, "USD")}
-                </span>
-                <span
-                  className={`font-semibold ${
-                    balance > 0 ? "text-green-600" : "text-red-600"
-                  }`}
-                >
-                  {balance > 0 ? "+" : ""}{formatCurrency(balance, "USD")}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="rounded-[1.3rem] border border-stone-200 bg-stone-950 px-4 py-4 text-white shadow-[0_14px_32px_rgba(28,25,23,0.12)]">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-stone-300">
-            Pagos del viaje
-          </h2>
-          <p className="text-xs text-stone-400">
-            {payload.payments.length} registrados
-          </p>
-        </div>
-
-        <form onSubmit={handleCreatePayment} className="mt-4 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1.5 text-sm text-stone-200">
-              <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
-                Paga
-              </span>
-              <select
-                value={paymentForm.fromUserId}
-                onChange={(event) =>
-                  setPaymentForm((currentValue) => ({
-                    ...currentValue,
-                    fromUserId: event.target.value,
-                  }))
-                }
-                className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
-                disabled={isSubmittingPayment}
-              >
-                {payload.users.map((user) => (
-                  <option key={user._id} value={user._id} className="text-stone-950">
-                    {user.nombre}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="space-y-1.5 text-sm text-stone-200">
-              <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
-                Recibe
-              </span>
-              <select
-                value={paymentForm.toUserId}
-                onChange={(event) =>
-                  setPaymentForm((currentValue) => ({
-                    ...currentValue,
-                    toUserId: event.target.value,
-                  }))
-                }
-                className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
-                disabled={isSubmittingPayment}
-              >
-                {payload.users.map((user) => (
-                  <option key={user._id} value={user._id} className="text-stone-950">
-                    {user.nombre}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1.5 text-sm text-stone-200">
-              <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
-                Monto (USD)
-              </span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min="0"
-                step="1"
-                value={paymentForm.monto}
-                onChange={(event) =>
-                  setPaymentForm((currentValue) => ({
-                    ...currentValue,
-                    monto: event.target.value,
-                  }))
-                }
-                className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
-                disabled={isSubmittingPayment}
-                required
-              />
-            </label>
-
-            <label className="min-w-0 space-y-1.5 text-sm text-stone-200">
-              <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
-                Fecha del pago
-              </span>
-              <input
-                type="date"
-                value={paymentForm.fecha}
-                onChange={(event) =>
-                  setPaymentForm((currentValue) => ({
-                    ...currentValue,
-                    fecha: event.target.value,
-                  }))
-                }
-                className="w-full min-w-0 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
-                disabled={isSubmittingPayment}
-                required
-              />
-            </label>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <button
-              type="submit"
-              disabled={isSubmittingPayment || payload.users.length < 2}
-              className="rounded-full bg-teal-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-950 transition hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmittingPayment ? "Guardando..." : "Cargar pago"}
-            </button>
-          </div>
-        </form>
-
-        {paymentError ? (
-          <p className="mt-3 rounded-2xl bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-            {paymentError}
-          </p>
-        ) : null}
-
-        {paymentFeedback ? (
-          <p className="mt-3 rounded-2xl bg-teal-500/10 px-4 py-3 text-sm text-teal-100">
-            {paymentFeedback}
-          </p>
-        ) : null}
-
-        <div className="mt-4 space-y-2">
-          {payload.payments.length > 0 ? (
-            payload.payments.map((payment) => (
-              <div
-                key={payment._id}
-                className="rounded-[1.2rem] border border-white/10 bg-white/8 px-4 py-3"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">
-                      {payment.fromUser?.nombre ?? "Persona"} pagó a{" "}
-                      {payment.toUser?.nombre ?? "Persona"}
-                    </p>
-                    <p className="text-xs uppercase tracking-[0.16em] text-stone-400">
-                      {formatExpenseDate(payment.fecha)}
-                    </p>
-                  </div>
-                  <strong className="text-sm font-semibold text-teal-300">
-                    {formatCurrency(payment.monto, "USD")}
-                  </strong>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="rounded-[1.2rem] border border-dashed border-white/10 px-4 py-4 text-sm text-stone-300">
-              Todavía no hay pagos cargados para este viaje.
-            </p>
-          )}
-        </div>
-      </div>
-
-      {expensesByCity.length > 0 && (
-        <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
-          <h2 className="text-xl font-semibold tracking-tight text-stone-950">Por Ciudad</h2>
-          <div className="mt-4 space-y-3">
-            {expensesByCity.map((city) => (
-              <div
-                key={city.nombre}
-                className="rounded-[1.3rem] border border-stone-200 bg-white/80 px-4 py-3"
-              >
-                <div className="flex items-start justify-between gap-3 text-sm">
-                  <span className="font-semibold text-stone-900">📍 {city.nombre}</span>
-                  <span className="shrink-0 font-semibold text-stone-700">
-                    {formatCurrency(city.total, "USD")} · {city.percentage}%
-                  </span>
-                </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200">
-                  <div
-                    className="h-full rounded-full bg-teal-500 transition-[width]"
-                    style={{ width: `${Math.min(Math.max(city.percentage, 6), 100)}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight text-stone-950">Categorías</h2>
-            <p className="mt-1 text-sm text-stone-500">
-              {selectedCategoryLabel} · {filteredExpenses.length} gastos
-            </p>
+      <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
+        <div className="space-y-4">
+          <h1 className="text-3xl font-semibold tracking-tight text-stone-950">Resumen del viaje</h1>
+          <p className="text-sm text-stone-600">{payload.trip.nombre}</p>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
+            <span className="rounded-full bg-teal-50 px-3 py-2 text-teal-800">
+              {payload.trip.estado === "activo" ? "viaje activo" : "viaje finalizado"}
+            </span>
+            <span className="rounded-full bg-stone-100 px-3 py-2 text-stone-700">
+              {payload.trip.fechaInicio} – {payload.trip.fechaFin}
+            </span>
           </div>
         </div>
-
-        {expensesByCategory.length > 0 ? (
-          <>
-            <div className="mt-4 space-y-3">
-              <button
-                type="button"
-                onClick={() => setActiveCategoryFilter(ALL_CATEGORY_FILTER)}
-                aria-pressed={activeCategoryFilter === ALL_CATEGORY_FILTER}
-                className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
-                  activeCategoryFilter === ALL_CATEGORY_FILTER
-                    ? "border-teal-300 bg-teal-50 shadow-[0_12px_28px_rgba(13,148,136,0.12)]"
-                    : "border-stone-200 bg-white/80 hover:border-stone-300"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3 text-sm">
-                  <div className="min-w-0">
-                    <span className="block truncate font-semibold text-stone-900">
-                      Todas las categorías
-                    </span>
-                    <span className="mt-0.5 block text-xs text-stone-500">
-                      {payload.expenses.length} gastos · 100% del viaje
-                    </span>
-                  </div>
-                  <span className="shrink-0 font-semibold text-stone-700">
-                    {formatCurrency(payload.summary.gastoTotal, "USD")}
-                  </span>
-                </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200">
-                  <div className="h-full w-full rounded-full bg-teal-500 transition-[width]" />
-                </div>
-              </button>
-
-              {expensesByCategory.map((cat) => {
-                const isSelected = activeCategoryFilter === cat.value;
-
-                return (
-                  <button
-                    key={cat.value}
-                    type="button"
-                    onClick={() => setActiveCategoryFilter(cat.value)}
-                    aria-pressed={isSelected}
-                    className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
-                      isSelected
-                        ? "border-teal-300 bg-teal-50 shadow-[0_12px_28px_rgba(13,148,136,0.12)]"
-                        : "border-stone-200 bg-white/80 hover:border-stone-300"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3 text-sm">
-                      <div className="min-w-0">
-                        <span className="block truncate font-semibold text-stone-900">
-                          {cat.icon} {cat.label}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-stone-500">
-                          {cat.count} gastos · {cat.percentage}% del viaje
-                        </span>
-                      </div>
-                      <span className="shrink-0 font-semibold text-stone-700">
-                        {formatCurrency(cat.total, "USD")}
-                      </span>
-                    </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200">
-                      <div
-                        className="h-full rounded-full bg-teal-500 transition-[width]"
-                        style={{ width: `${Math.min(Math.max(cat.percentage, 6), 100)}%` }}
-                      />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-5 rounded-[1.4rem] border border-stone-200 bg-stone-50 px-4 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-600">
-                  Gastos filtrados
-                </h3>
-                <span className="text-xs font-medium text-stone-500">{filteredExpenses.length}</span>
-              </div>
-
-              {filteredExpenses.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {filteredExpenses.map((expense) => (
-                    <article
-                      key={expense._id}
-                      className="rounded-[1.1rem] border border-white bg-white px-3 py-3 shadow-[0_8px_22px_rgba(28,25,23,0.06)]"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
-                            {formatExpenseDate(expense.fecha)} · 📍 {expense.ciudad}
-                          </p>
-                          <h4 className="mt-1 truncate text-sm font-semibold text-stone-950">
-                            {expense.descripcion}
-                          </h4>
-                        </div>
-                        <strong className="shrink-0 text-sm font-semibold text-stone-950">
-                          {formatCurrency(expense.monto, "USD")}
-                        </strong>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-3 rounded-[1.1rem] border border-dashed border-stone-300 px-4 py-5 text-sm text-stone-500">
-                  Sin gastos para este filtro.
-                </p>
-              )}
-            </div>
-          </>
-        ) : (
-          <p className="mt-4 text-sm text-stone-600">Sin categorías registradas.</p>
-        )}
       </section>
+
+      <SummaryPanel>
+        <BalanceOverview
+          eyebrow="Balance del viaje"
+          total={formatCurrency(payload.summary.gastoTotal, "USD")}
+          primaryStat={{ label: "gastos", value: payload.expenses.length }}
+          secondaryStat={{
+            label: "pagos",
+            value: payload.summary.paymentCount,
+            detail: `${formatCurrency(payload.summary.paymentTotal, "USD")} cargados`,
+          }}
+          pending={{
+            hasPending: hasActiveSettlement,
+            value: activeSettlement ? formatCurrency(activeSettlement.amount, "USD") : "Al día",
+            detail: hasActiveSettlement
+              ? "Todavía queda un ajuste pendiente entre personas."
+              : "No hay deuda activa para este viaje.",
+          }}
+        />
+
+        <PersonBalanceList people={people} page={peoplePage} onPageChange={setPeoplePage} />
+
+        <DebtSettlementCard
+          hasSettlement={hasActiveSettlement}
+          settlement={
+            activeSettlement
+              ? {
+                  fromNombre: activeSettlement.fromNombre,
+                  toNombre: activeSettlement.toNombre,
+                  amountLabel: formatCurrency(activeSettlement.amount, "USD"),
+                }
+              : null
+          }
+          message={payload.summary.activeDebt.message}
+          settledHeadline="Nadie le debe a nadie en este viaje."
+        />
+
+        <PaymentsPanel
+          title="Pagos del viaje"
+          registeredCount={payload.payments.length}
+          page={paymentsPage}
+          onPageChange={setPaymentsPage}
+          rows={payload.payments.map((payment) => ({
+            id: payment._id,
+            title: `${payment.fromUser?.nombre ?? "Persona"} pagó a ${payment.toUser?.nombre ?? "Persona"}`,
+            meta: formatExpenseDate(payment.fecha),
+            amount: formatCurrency(payment.monto, "USD"),
+          }))}
+          emptyMessage="Todavía no hay pagos cargados para este viaje."
+        >
+          <form onSubmit={handleCreatePayment} className="mt-4 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1.5 text-sm text-stone-200">
+                <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+                  Paga
+                </span>
+                <select
+                  value={paymentForm.fromUserId}
+                  onChange={(event) =>
+                    setPaymentForm((currentValue) => ({
+                      ...currentValue,
+                      fromUserId: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
+                  disabled={isSubmittingPayment}
+                >
+                  {payload.users.map((user) => (
+                    <option key={user._id} value={user._id} className="text-stone-950">
+                      {user.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1.5 text-sm text-stone-200">
+                <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+                  Recibe
+                </span>
+                <select
+                  value={paymentForm.toUserId}
+                  onChange={(event) =>
+                    setPaymentForm((currentValue) => ({
+                      ...currentValue,
+                      toUserId: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
+                  disabled={isSubmittingPayment}
+                >
+                  {payload.users.map((user) => (
+                    <option key={user._id} value={user._id} className="text-stone-950">
+                      {user.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1.5 text-sm text-stone-200">
+                <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+                  Monto (USD)
+                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  step="1"
+                  value={paymentForm.monto}
+                  onChange={(event) =>
+                    setPaymentForm((currentValue) => ({
+                      ...currentValue,
+                      monto: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
+                  disabled={isSubmittingPayment}
+                  required
+                />
+              </label>
+
+              <label className="min-w-0 space-y-1.5 text-sm text-stone-200">
+                <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+                  Fecha del pago
+                </span>
+                <input
+                  type="date"
+                  value={paymentForm.fecha}
+                  onChange={(event) =>
+                    setPaymentForm((currentValue) => ({
+                      ...currentValue,
+                      fecha: event.target.value,
+                    }))
+                  }
+                  className="w-full min-w-0 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none transition focus:border-teal-400"
+                  disabled={isSubmittingPayment}
+                  required
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <button
+                type="submit"
+                disabled={isSubmittingPayment || payload.users.length < 2}
+                className="rounded-full bg-teal-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-950 transition hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmittingPayment ? "Guardando..." : "Cargar pago"}
+              </button>
+            </div>
+          </form>
+
+          {paymentError ? (
+            <p className="mt-3 rounded-2xl bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+              {paymentError}
+            </p>
+          ) : null}
+
+          {paymentFeedback ? (
+            <p className="mt-3 rounded-2xl bg-teal-500/10 px-4 py-3 text-sm text-teal-100">
+              {paymentFeedback}
+            </p>
+          ) : null}
+        </PaymentsPanel>
+      </SummaryPanel>
+
+      <MeterList
+        title="Por Ciudad"
+        items={expensesByCity.map((city) => ({
+          id: city.id,
+          label: city.label,
+          amountLabel: formatCurrency(city.total, "USD"),
+          percentage: city.percentage,
+        }))}
+        page={citiesPage}
+        onPageChange={setCitiesPage}
+      />
+
+      <CategoryBreakdown
+        currency="USD"
+        scopeLabel="del viaje"
+        totalCount={payload.expenses.length}
+        totalAmount={payload.summary.gastoTotal}
+        categories={expensesByCategory}
+        selectedKey={activeCategoryFilter}
+        allKey={ALL_CATEGORY_FILTER}
+        selectedLabel={selectedCategoryLabel}
+        selectedTotal={selectedExpensesTotal}
+        filteredExpenses={filteredExpenses.map((expense) => ({
+          id: expense._id,
+          meta: `${formatExpenseDate(expense.fecha)} · 📍 ${expense.ciudad}`,
+          title: expense.descripcion,
+          amount: expense.monto,
+        }))}
+        onSelect={handleSelectCategory}
+        categoryPage={categoriesPage}
+        onCategoryPageChange={setCategoriesPage}
+        filteredPage={filteredExpensesPage}
+        onFilteredPageChange={setFilteredExpensesPage}
+      />
     </div>
   );
 }
