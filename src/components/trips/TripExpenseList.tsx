@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { ListPagination } from "@/components/shared/ListPagination";
 import { formatCurrency } from "@/lib/utils";
 import { TRIP_EXPENSE_CATEGORIES } from "@/lib/trip-expense-categories";
 import { formatExpenseDate } from "@/lib/date-helpers";
@@ -24,6 +25,9 @@ type TripExpenseListProps = {
   ciudades: string[];
   tripStartDate: string;
   tripEndDate: string;
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
   onDeleteExpense?: (expenseId: string) => Promise<void>;
   onEditExpense?: (input: TripExpenseEditInput) => Promise<boolean>;
   isDeletingId?: string | null;
@@ -35,8 +39,9 @@ export function TripExpenseList({
   expenses,
   users,
   ciudades,
-  tripStartDate,
-  tripEndDate,
+  currentPage,
+  totalPages,
+  onPageChange,
   onDeleteExpense,
   onEditExpense,
   isDeletingId,
@@ -118,6 +123,7 @@ export function TripExpenseList({
 
   return (
     <div className="rounded-[1.8rem] border border-white/70 bg-white/85 shadow-[0_16px_36px_rgba(28,25,23,0.08)] backdrop-blur">
+      <div className="flex flex-col">
       <div className="space-y-3 p-3">
         {expenses.map((expense) => {
           const category = TRIP_EXPENSE_CATEGORIES.find(
@@ -374,6 +380,16 @@ export function TripExpenseList({
             </article>
           );
         })}
+      </div>
+      <ListPagination
+        layout="footer"
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPrevious={() => onPageChange(currentPage - 1)}
+        onNext={() => onPageChange(currentPage + 1)}
+        previousAriaLabel="Ver gastos más nuevos"
+        nextAriaLabel="Ver gastos más antiguos"
+      />
       </div>
     </div>
   );

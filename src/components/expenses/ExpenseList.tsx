@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { ListPagination } from "@/components/shared/ListPagination";
 import { formatCurrency } from "@/lib/utils";
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 import { formatExpenseDate, getDefaultInputValueForMonth } from "@/lib/date-helpers";
@@ -316,32 +317,15 @@ export function ExpenseList({
           })}
         </div>
 
-        <div className="border-t border-stone-200/80 px-4 py-4">
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
-            Página {currentPage} de {totalPages}
-          </p>
-
-          <div className="mt-3 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => onPageChange(currentPage - 1)}
-              disabled={currentPage === 1}
-              className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="Ver gastos más nuevos"
-            >
-              Anterior
-            </button>
-            <button
-              type="button"
-              onClick={() => onPageChange(currentPage + 1)}
-              disabled={currentPage === totalPages}
-              className="rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="Ver gastos más antiguos"
-            >
-              Siguiente
-            </button>
-          </div>
-        </div>
+        <ListPagination
+          layout="footer"
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPrevious={() => onPageChange(currentPage - 1)}
+          onNext={() => onPageChange(currentPage + 1)}
+          previousAriaLabel="Ver gastos más nuevos"
+          nextAriaLabel="Ver gastos más antiguos"
+        />
       </div>
     </div>
   );
