@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 const TRIP_SUB_NAV_ITEMS = [
   { key: "gastos", label: "Gastos", suffix: "" },
   { key: "resumen", label: "Resumen", suffix: "/resumen" },
-  { key: "estadisticas", label: "Estadísticas", suffix: "/estadisticas" },
 ] as const;
 
 type TripSubNavProps = {
@@ -20,7 +19,7 @@ export function TripSubNav({ tripId }: TripSubNavProps) {
   return (
     <nav
       aria-label="Navegación del viaje"
-      className="grid grid-cols-3 gap-1 rounded-full bg-stone-100 p-1"
+      className="grid grid-cols-2 gap-1 rounded-full bg-stone-100 p-1"
     >
       {TRIP_SUB_NAV_ITEMS.map((item) => {
         const href = `${basePath}${item.suffix}`;
