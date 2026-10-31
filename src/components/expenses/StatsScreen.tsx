@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import { ListPagination } from "@/components/shared/ListPagination";
 import {
   BalanceOverview,
   CategoryBreakdown,
@@ -14,7 +13,6 @@ import {
 import { formatSignedBalance } from "@/lib/balance-format";
 import { formatExpenseDate, formatMonthLabel, getTodayInputValue } from "@/lib/date-helpers";
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
-import { LIST_PAGE_SIZE, slicePage } from "@/lib/list-pagination";
 import { formatCurrency } from "@/lib/utils";
 import type {
   ActiveDebtSettlement,
@@ -43,7 +41,6 @@ type FinalizeDialogState = {
 };
 
 const ALL_CATEGORY_FILTER = "all";
-const MAX_VISIBLE_MONTHS = LIST_PAGE_SIZE;
 const EXPENSE_CATEGORY_LABELS = new Map<string, string>(
   EXPENSE_CATEGORIES.map((category) => [category.value, category.label])
 );
@@ -52,10 +49,10 @@ async function parseJson<T>(response: Response) {
   return (await response.json().catch(() => null)) as T | null;
 }
 
-function formatSummaryTitle(monthKey: string) {
+function capitalizeMonthLabel(monthKey: string) {
   const monthLabel = formatMonthLabel(monthKey);
 
-  return `Resumen ${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)}`;
+  return `${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)}`;
 }
 
 function buildDefaultPaymentForm(payload: ExpensesDashboardPayload | null): PaymentFormState {
@@ -165,8 +162,9 @@ async function copyTextToClipboard(text: string) {
 export function StatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORY_FILTER);
-  const [historyPage, setHistoryPage] = useState(0);
   const [spendingRowsPage, setSpendingRowsPage] = useState(0);
+  const monthScrollerRef = useRef<HTMLDivElement>(null);
+  const finalizeNoticeRef = useRef("");
   const [paymentsPage, setPaymentsPage] = useState(0);
   const [categoriesPage, setCategoriesPage] = useState(0);
   const [filteredExpensesPage, setFilteredExpensesPage] = useState(0);
@@ -220,10 +218,13 @@ export function StatsScreen() {
         return;
       }
 
+      const finalizeNotice = finalizeNoticeRef.current;
+      finalizeNoticeRef.current = "";
+
       setPaymentForm(buildDefaultPaymentForm(data));
       setPaymentError("");
       setPaymentFeedback("");
-      setFinalizeFeedback("");
+      setFinalizeFeedback(finalizeNotice);
       setFinalizeError("");
       setExportFeedback("");
       setExportError("");
@@ -277,15 +278,39 @@ export function StatsScreen() {
 
     return [...visibleExpenses].sort(sortExpensesByNewest);
   }, [activeCategoryFilter, state.payload]);
-  const visibleMonths = useMemo(() => {
-    const payload = state.payload;
+  const visibleMonthKey = state.payload?.currentMonth ?? null;
 
-    if (!payload) {
-      return [];
+  useEffect(() => {
+    const scroller = monthScrollerRef.current;
+
+    if (!scroller || !visibleMonthKey) {
+      return;
     }
 
-    return slicePage(payload.availableMonths, historyPage, MAX_VISIBLE_MONTHS).items;
-  }, [historyPage, state.payload]);
+    const selectedChip = scroller.querySelector<HTMLElement>(
+      `[data-month-key="${visibleMonthKey}"]`
+    );
+
+    if (!selectedChip) {
+      return;
+    }
+
+    const scrollerRect = scroller.getBoundingClientRect();
+    const chipRect = selectedChip.getBoundingClientRect();
+    const isFullyVisible =
+      chipRect.left >= scrollerRect.left - 1 && chipRect.right <= scrollerRect.right + 1;
+
+    if (isFullyVisible) {
+      return;
+    }
+
+    const delta =
+      chipRect.left - scrollerRect.left - (scrollerRect.width - chipRect.width) / 2;
+    const maxScroll = scroller.scrollWidth - scroller.clientWidth;
+    const nextLeft = Math.min(maxScroll, Math.max(0, scroller.scrollLeft + delta));
+
+    scroller.scrollTo({ left: nextLeft, behavior: "smooth" });
+  }, [visibleMonthKey]);
 
   function openFinalizeDialog(message: string, settlement: ActiveDebtSettlement | null) {
     setFinalizeDialog({
@@ -385,12 +410,19 @@ export function StatsScreen() {
       }
 
       closeFinalizeDialog();
+      finalizeNoticeRef.current = "Mes finalizado.";
       setFinalizeFeedback("Mes finalizado.");
       setSpendingRowsPage(0);
       setPaymentsPage(0);
       setCategoriesPage(0);
       setFilteredExpensesPage(0);
-      setSelectedMonth(data?.activeMonth ?? null);
+      const nextActiveMonth = data?.activeMonth ?? null;
+
+      if (nextActiveMonth === selectedMonth) {
+        setReloadNonce((currentValue) => currentValue + 1);
+      } else {
+        setSelectedMonth(nextActiveMonth);
+      }
     });
   }
 
@@ -486,11 +518,6 @@ export function StatsScreen() {
   }
 
   const payload = state.payload;
-  const totalHistoryPages = Math.max(1, Math.ceil(payload.availableMonths.length / MAX_VISIBLE_MONTHS));
-  const safeHistoryPage = Math.max(0, Math.min(historyPage, totalHistoryPages - 1));
-  const currentHistoryPage = safeHistoryPage + 1;
-  const canMoveToPreviousHistoryPage = safeHistoryPage > 0;
-  const canMoveToNextHistoryPage = safeHistoryPage < totalHistoryPages - 1;
   const selectedCategoryLabel = selectedCategorySummary
     ? `${selectedCategorySummary.icon} ${selectedCategorySummary.label}`
     : "Todas";
@@ -505,22 +532,24 @@ export function StatsScreen() {
     <div className="space-y-4">
       <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
         <div className="space-y-4">
-          <h1 className="text-3xl font-semibold tracking-tight text-stone-950">
-            {formatSummaryTitle(payload.currentMonth)}
-          </h1>
-
-          <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
-            <span className="rounded-full bg-teal-50 px-3 py-2 text-teal-800">
-              mes activo {formatMonthLabel(payload.activeMonth)}
+          <div className="relative">
+            <h1 className="text-3xl font-semibold leading-tight tracking-tight text-stone-950">
+              <span className="block pr-20">Resumen</span>
+              <span className="mt-1 block">{capitalizeMonthLabel(payload.currentMonth)}</span>
+            </h1>
+            <span
+              className={`absolute top-1 right-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                payload.monthState.isFinalized
+                  ? "bg-stone-100 text-stone-600"
+                  : "bg-teal-50 text-teal-800"
+              }`}
+            >
+              {payload.monthState.isFinalized ? "Cerrado" : "Abierto"}
             </span>
-            {payload.monthState.isFinalized ? (
-              <span className="rounded-full bg-stone-100 px-3 py-2 text-stone-700">
-                cerrado {payload.monthState.closedAt ? formatExpenseDate(payload.monthState.closedAt) : ""}
-              </span>
-            ) : (
-              <span className="rounded-full bg-amber-50 px-3 py-2 text-amber-800">
-                mes abierto
-              </span>
+            {payload.monthState.isCurrent ? null : (
+              <p className="mt-1 text-xs text-stone-500">
+                Mes activo: {capitalizeMonthLabel(payload.activeMonth)}
+              </p>
             )}
           </div>
 
@@ -530,97 +559,71 @@ export function StatsScreen() {
               onClick={() => {
                 void handleCopyExpenses();
               }}
-              className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
+              aria-label="Exportar gastos"
+              className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:border-stone-300 hover:bg-white hover:text-stone-950"
             >
-              Exportar gastos
+              Exportar
             </button>
             {payload.monthState.canFinalize ? (
               <button
                 type="button"
                 onClick={requestFinalizeConfirmation}
                 disabled={isFinalizingMonth}
-                className="rounded-full border border-teal-300 bg-teal-600 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl border border-stone-200 bg-white px-3 py-1.5 text-sm font-medium text-stone-600 transition hover:border-stone-300 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isFinalizingMonth ? "Finalizando..." : "Finalizar mes"}
               </button>
             ) : null}
           </div>
 
-          <div className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-600">
-                Históricos
-              </h2>
-              <p className="text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
-                Página {currentHistoryPage} de {totalHistoryPages}
-              </p>
-            </div>
+          <div
+            ref={monthScrollerRef}
+            aria-label="Meses"
+            className="-mx-5 flex snap-x snap-mandatory items-center gap-2 overflow-x-auto px-5 pb-1 scroll-px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {payload.availableMonths.map((month) => {
+              const isSelected = month.monthKey === payload.currentMonth;
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              {visibleMonths.map((month) => {
-                const isSelected = month.monthKey === payload.currentMonth;
-
-                return (
-                  <button
-                    key={month.monthKey}
-                    type="button"
-                    onClick={() => handleSelectMonth(month.monthKey)}
-                    className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
-                      isSelected
-                        ? "bg-stone-950 text-white"
-                        : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
-                    }`}
-                  >
-                    {formatMonthLabel(month.monthKey)}
-                    {month.isFinalized ? " · cerrado" : month.isCurrent ? " · activo" : ""}
-                  </button>
-                );
-              })}
-            </div>
-
-            {payload.availableMonths.length > MAX_VISIBLE_MONTHS ? (
-              <p className="mt-3 text-xs text-stone-500">
-                Mostrando {visibleMonths.length} de {payload.availableMonths.length} meses.
-              </p>
-            ) : null}
-
-            {totalHistoryPages > 1 ? (
-              <ListPagination
-                currentPage={currentHistoryPage}
-                totalPages={totalHistoryPages}
-                canGoBack={canMoveToPreviousHistoryPage}
-                canGoForward={canMoveToNextHistoryPage}
-                onPrevious={() => setHistoryPage((currentPage) => Math.max(currentPage - 1, 0))}
-                onNext={() =>
-                  setHistoryPage((currentPage) =>
-                    Math.min(currentPage + 1, totalHistoryPages - 1)
-                  )
-                }
-                previousAriaLabel="Ver página anterior de históricos"
-                nextAriaLabel="Ver página siguiente de históricos"
-              />
-            ) : null}
+              return (
+                <button
+                  key={month.monthKey}
+                  type="button"
+                  data-month-key={month.monthKey}
+                  aria-current={isSelected ? "true" : undefined}
+                  aria-label={
+                    month.isFinalized
+                      ? `${capitalizeMonthLabel(month.monthKey)}, cerrado`
+                      : capitalizeMonthLabel(month.monthKey)
+                  }
+                  onClick={() => handleSelectMonth(month.monthKey)}
+                  className={`snap-start inline-flex shrink-0 flex-col items-center gap-0.5 rounded-full px-3.5 py-2 text-sm font-medium whitespace-nowrap transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 ${
+                    isSelected
+                      ? "bg-stone-950 text-white"
+                      : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
+                  }`}
+                >
+                  <span>{capitalizeMonthLabel(month.monthKey)}</span>
+                  {month.isFinalized ? (
+                    <span
+                      className={`text-[10px] font-normal leading-none tracking-wide ${
+                        isSelected ? "text-white/65" : "text-stone-400"
+                      }`}
+                    >
+                      cerrado
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
 
-          {finalizeFeedback ? (
-            <p className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-800">
-              {finalizeFeedback}
-            </p>
-          ) : null}
-          {finalizeError ? (
-            <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {finalizeError}
-            </p>
-          ) : null}
-          {exportFeedback ? (
-            <p className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-800">
-              {exportFeedback}
-            </p>
-          ) : null}
-          {exportError ? (
-            <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {exportError}
-            </p>
+          {finalizeFeedback || finalizeError || exportFeedback || exportError ? (
+            <div className="space-y-1 text-sm">
+              {finalizeFeedback ? <p className="text-teal-800">{finalizeFeedback}</p> : null}
+              {finalizeError ? <p className="text-rose-700">{finalizeError}</p> : null}
+              {exportFeedback ? <p className="text-teal-800">{exportFeedback}</p> : null}
+              {exportError ? <p className="text-rose-700">{exportError}</p> : null}
+            </div>
           ) : null}
         </div>
       </section>
