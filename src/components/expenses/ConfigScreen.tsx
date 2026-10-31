@@ -16,8 +16,57 @@ type LoadState = {
   isLoading: boolean;
 };
 
+type SessionUser = {
+  username: string;
+  nombre: string;
+};
+
 async function parseJson<T>(response: Response) {
   return (await response.json().catch(() => null)) as T | null;
+}
+
+function AccountSection({
+  sessionUser,
+  isLoggingOut,
+  logoutError,
+  onLogout,
+}: {
+  sessionUser: SessionUser | null;
+  isLoggingOut: boolean;
+  logoutError: string;
+  onLogout: () => void;
+}) {
+  return (
+    <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
+      <h2 className="text-xl font-semibold tracking-tight text-stone-950">
+        <span aria-hidden="true">👤 </span>
+        Cuenta
+      </h2>
+
+      {sessionUser ? (
+        <p className="mt-3 text-sm text-stone-600">
+          Sesión de{" "}
+          <span className="font-semibold text-stone-950">{sessionUser.nombre}</span>
+          <span className="text-stone-500"> @{sessionUser.username}</span>
+        </p>
+      ) : (
+        <p className="mt-3 text-sm text-stone-600">Sesión actual de esta cucha.</p>
+      )}
+
+      {logoutError ? (
+        <p className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{logoutError}</p>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onLogout}
+        disabled={isLoggingOut}
+        className="mt-4 flex w-full items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isLoggingOut ? "Cerrando sesión..." : "Cerrar sesión"}
+      </button>
+    </section>
+  );
 }
 
 export function ConfigScreen() {
@@ -34,6 +83,9 @@ export function ConfigScreen() {
   const [saveError, setSaveError] = useState("");
   const [saveFeedback, setSaveFeedback] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const [isSaving, startSavingTransition] = useTransition();
 
   useEffect(() => {
@@ -62,7 +114,24 @@ export function ConfigScreen() {
       setEnabledCategories(data.household.categoriasHabilitadas);
     }
 
+    async function loadSession() {
+      const response = await fetch("/api/auth/me", { cache: "no-store" });
+      const data = await parseJson<{
+        user?: { username?: string; nombre?: string } | null;
+      }>(response);
+
+      if (!isMounted || !response.ok || !data?.user?.username) {
+        return;
+      }
+
+      setSessionUser({
+        username: data.user.username,
+        nombre: data.user.nombre?.trim() || data.user.username,
+      });
+    }
+
     void loadSettings();
+    void loadSession();
 
     return () => {
       isMounted = false;
@@ -167,6 +236,29 @@ export function ConfigScreen() {
     }
   }
 
+  async function handleLogout() {
+    setLogoutError("");
+    setIsLoggingOut(true);
+
+    try {
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        setLogoutError("No pudimos cerrar la sesión.");
+        setIsLoggingOut(false);
+        return;
+      }
+
+      window.location.assign("/login");
+    } catch {
+      setLogoutError("No pudimos cerrar la sesión.");
+      setIsLoggingOut(false);
+    }
+  }
+
   if (state.isLoading) {
     return (
       <div className="space-y-4">
@@ -178,28 +270,45 @@ export function ConfigScreen() {
 
   if (state.error || !state.payload) {
     return (
-      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 px-5 py-6 text-rose-800">
-        <h1 className="text-lg font-semibold">No pudimos abrir la configuración.</h1>
-        <p className="mt-2 text-sm leading-6">{state.error || "Intentá recargar la página."}</p>
-      </section>
+      <div className="space-y-4">
+        <section className="rounded-[2rem] border border-rose-200 bg-rose-50 px-5 py-6 text-rose-800">
+          <h1 className="text-lg font-semibold">No pudimos abrir la configuración.</h1>
+          <p className="mt-2 text-sm leading-6">{state.error || "Intentá recargar la página."}</p>
+        </section>
+        <AccountSection
+          sessionUser={sessionUser}
+          isLoggingOut={isLoggingOut}
+          logoutError={logoutError}
+          onLogout={() => {
+            void handleLogout();
+          }}
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-4">
       <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
-        <div className="space-y-4">
-          <h1 className="text-3xl font-semibold tracking-tight text-stone-950">
-            Configuración
-          </h1>
-
-        </div>
+        <h1 className="text-3xl font-semibold tracking-tight text-stone-950">
+          Configuración
+        </h1>
       </section>
+
+      <AccountSection
+        sessionUser={sessionUser}
+        isLoggingOut={isLoggingOut}
+        logoutError={logoutError}
+        onLogout={() => {
+          void handleLogout();
+        }}
+      />
 
       <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-semibold tracking-tight text-stone-950">
-            Nombre e invitación
+            <span aria-hidden="true">🏠 </span>
+            Cucha
           </h2>
 
           <button
@@ -239,7 +348,8 @@ export function ConfigScreen() {
 
       <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
         <h2 className="text-xl font-semibold tracking-tight text-stone-950">
-          Porcentaje por persona
+          <span aria-hidden="true">⚖️ </span>
+          Split
         </h2>
 
         {canConfigureSplit && firstUser && secondUser ? (
@@ -288,7 +398,8 @@ export function ConfigScreen() {
       <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-semibold tracking-tight text-stone-950">
-            Categorías habilitadas
+            <span aria-hidden="true">🏷️ </span>
+            Categorías
           </h2>
 
           <button

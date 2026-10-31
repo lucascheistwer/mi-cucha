@@ -5,6 +5,14 @@ export const EXPENSE_CATEGORIES = [
   { value: "salidas-ocio", label: "Salidas/Ocio", icon: "🎉" },
   { value: "para-la-casa", label: "Para la Casa", icon: "🏠" },
   { value: "delivery", label: "Delivery", icon: "🛵" },
+  { value: "supermercado", label: "Supermercado", icon: "🛒" },
+  { value: "salud", label: "Salud", icon: "💊" },
+  { value: "mascotas", label: "Mascotas", icon: "🐾" },
+  { value: "suscripciones", label: "Suscripciones", icon: "📺" },
+  { value: "ropa", label: "Ropa", icon: "👕" },
+  { value: "educacion", label: "Educación", icon: "📚" },
+  { value: "regalos", label: "Regalos", icon: "🎁" },
+  { value: "otros", label: "Otros", icon: "✨" },
 ] as const;
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];

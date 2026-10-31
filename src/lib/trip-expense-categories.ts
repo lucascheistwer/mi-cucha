@@ -5,6 +5,10 @@ export const TRIP_EXPENSE_CATEGORIES = [
   { value: "bar-restaurante", label: "Bar/Restaurante", icon: "🍽️" },
   { value: "atraccion", label: "Atracción", icon: "🎭" },
   { value: "compras-casa", label: "Compras para la casa", icon: "🏠" },
+  { value: "vuelos", label: "Vuelos", icon: "✈️" },
+  { value: "seguro", label: "Seguro", icon: "🛡️" },
+  { value: "propinas", label: "Propinas", icon: "💵" },
+  { value: "otros", label: "Otros", icon: "✨" },
 ] as const;
 
 export type TripExpenseCategory = (typeof TRIP_EXPENSE_CATEGORIES)[number];
