@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { ListPagination } from "@/components/shared/ListPagination";
 import { formatExpenseDate, formatMonthLabel } from "@/lib/date-helpers";
+import { LIST_PAGE_SIZE, slicePage } from "@/lib/list-pagination";
 import { formatCurrency } from "@/lib/utils";
 import type { ExpenseListItem, ExpensesDashboardPayload } from "@/types/expense";
 
@@ -207,6 +209,8 @@ function getDeltaTone(currentTotal: number, previousTotal: number | null) {
 export function CompareStatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedRecurringExpense, setSelectedRecurringExpense] = useState<string | null>(null);
+  const [monthPage, setMonthPage] = useState<number | null>(null);
+  const [recurringMonthPage, setRecurringMonthPage] = useState<number | null>(null);
   const [state, setState] = useState<LoadState>({
     months: [],
     error: "",
@@ -307,6 +311,20 @@ export function CompareStatsScreen() {
   const selectedRecurringStats =
     recurringExpenses.find((expense) => expense.normalizedName === selectedRecurringExpense) ??
     mostRecurringExpense;
+  const monthListSlice = useMemo(() => {
+    const selectedIndex = selectedStats
+      ? chronologicalMonths.findIndex((month) => month.monthKey === selectedStats.monthKey)
+      : -1;
+    const pageWithSelection = selectedIndex >= 0 ? Math.floor(selectedIndex / LIST_PAGE_SIZE) : 0;
+
+    return slicePage(chronologicalMonths, monthPage ?? pageWithSelection);
+  }, [chronologicalMonths, monthPage, selectedStats]);
+  const recurringMonthSlice = useMemo(() => {
+    const months = selectedRecurringStats?.months ?? [];
+    const lastPage = Math.max(0, Math.ceil(months.length / LIST_PAGE_SIZE) - 1);
+
+    return slicePage(months, recurringMonthPage ?? lastPage);
+  }, [recurringMonthPage, selectedRecurringStats]);
   const recurringMaxTotal = Math.max(
     0,
     ...(selectedRecurringStats?.months.map((month) => month.total) ?? [])
@@ -385,16 +403,27 @@ export function CompareStatsScreen() {
           </span>
         </div>
 
+        <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
+          Página {monthListSlice.pageNumber} de {monthListSlice.totalPages}
+        </p>
+
         <div className="mt-4 space-y-3">
-          {chronologicalMonths.map((month, index) => {
-            const previousMonth = chronologicalMonths[index - 1] ?? null;
+          {monthListSlice.items.map((month) => {
+            const chronologicalIndex = chronologicalMonths.findIndex(
+              (candidate) => candidate.monthKey === month.monthKey
+            );
+            const previousMonth =
+              chronologicalIndex > 0 ? chronologicalMonths[chronologicalIndex - 1] : null;
             const width = maxTotal > 0 ? Math.max((month.total / maxTotal) * 100, 6) : 0;
 
             return (
               <button
                 key={month.monthKey}
                 type="button"
-                onClick={() => setSelectedMonth(month.monthKey)}
+                onClick={() => {
+                  setSelectedMonth(month.monthKey);
+                  setMonthPage(monthListSlice.page);
+                }}
                 aria-pressed={selectedStats?.monthKey === month.monthKey}
                 className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
                   selectedStats?.monthKey === month.monthKey
@@ -424,6 +453,27 @@ export function CompareStatsScreen() {
             );
           })}
         </div>
+
+        {chronologicalMonths.length > LIST_PAGE_SIZE ? (
+          <p className="mt-3 text-xs text-stone-500">
+            Mostrando {monthListSlice.items.length} de {chronologicalMonths.length} meses.
+          </p>
+        ) : null}
+
+        {monthListSlice.totalPages > 1 ? (
+          <ListPagination
+            currentPage={monthListSlice.pageNumber}
+            totalPages={monthListSlice.totalPages}
+            canGoBack={monthListSlice.canGoBack}
+            canGoForward={monthListSlice.canGoForward}
+            onPrevious={() => setMonthPage(Math.max(monthListSlice.page - 1, 0))}
+            onNext={() =>
+              setMonthPage(Math.min(monthListSlice.page + 1, monthListSlice.totalPages - 1))
+            }
+            previousAriaLabel="Ver página anterior de meses"
+            nextAriaLabel="Ver página siguiente de meses"
+          />
+        ) : null}
       </section>
 
       {selectedStats ? (
@@ -549,7 +599,12 @@ export function CompareStatsScreen() {
                 <button
                   key={expense.normalizedName}
                   type="button"
-                  onClick={() => setSelectedRecurringExpense(expense.normalizedName)}
+                  onClick={() => {
+                    if (expense.normalizedName !== selectedRecurringStats?.normalizedName) {
+                      setRecurringMonthPage(null);
+                    }
+                    setSelectedRecurringExpense(expense.normalizedName);
+                  }}
                   className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
                     isSelected
                       ? "bg-stone-950 text-white"
@@ -603,8 +658,12 @@ export function CompareStatsScreen() {
                 </div>
               </div>
 
-              <div className="mt-4 space-y-3">
-                {selectedRecurringStats.months.map((month) => {
+              <p className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
+                Página {recurringMonthSlice.pageNumber} de {recurringMonthSlice.totalPages}
+              </p>
+
+              <div className="mt-3 space-y-3">
+                {recurringMonthSlice.items.map((month) => {
                   const width =
                     recurringMaxTotal > 0 ? Math.max((month.total / recurringMaxTotal) * 100, 8) : 0;
 
@@ -627,6 +686,31 @@ export function CompareStatsScreen() {
                   );
                 })}
               </div>
+
+              {selectedRecurringStats.months.length > LIST_PAGE_SIZE ? (
+                <p className="mt-3 text-xs text-stone-500">
+                  Mostrando {recurringMonthSlice.items.length} de {selectedRecurringStats.months.length} meses.
+                </p>
+              ) : null}
+
+              {recurringMonthSlice.totalPages > 1 ? (
+                <ListPagination
+                  currentPage={recurringMonthSlice.pageNumber}
+                  totalPages={recurringMonthSlice.totalPages}
+                  canGoBack={recurringMonthSlice.canGoBack}
+                  canGoForward={recurringMonthSlice.canGoForward}
+                  onPrevious={() =>
+                    setRecurringMonthPage(Math.max(recurringMonthSlice.page - 1, 0))
+                  }
+                  onNext={() =>
+                    setRecurringMonthPage(
+                      Math.min(recurringMonthSlice.page + 1, recurringMonthSlice.totalPages - 1)
+                    )
+                  }
+                  previousAriaLabel="Ver página anterior de la evolución del gasto"
+                  nextAriaLabel="Ver página siguiente de la evolución del gasto"
+                />
+              ) : null}
 
               <p className="mt-3 text-xs text-stone-500">
                 Promedio histórico {formatCurrency(selectedRecurringStats.averageAmount)} · total acumulado{" "}
