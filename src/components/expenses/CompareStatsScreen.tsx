@@ -206,11 +206,49 @@ function getDeltaTone(currentTotal: number, previousTotal: number | null) {
   return currentTotal > previousTotal ? "text-rose-700" : "text-teal-700";
 }
 
+function reservedRowCount(visibleCount: number, totalCount: number) {
+  if (totalCount <= LIST_PAGE_SIZE) {
+    return 0;
+  }
+
+  return Math.max(0, LIST_PAGE_SIZE - visibleCount);
+}
+
+function ComparisonMonthSlot() {
+  return (
+    <div aria-hidden="true" className="invisible w-full rounded-[1.3rem] border px-4 py-3">
+      <div className="flex items-start justify-between gap-3 text-sm">
+        <div>
+          <p className="font-semibold">mes</p>
+          <p className="mt-0.5 text-xs">vs anterior</p>
+        </div>
+        <div className="text-right">
+          <p className="font-semibold">$0</p>
+          <p className="text-xs">0 gastos</p>
+        </div>
+      </div>
+      <div className="mt-3 h-2.5" />
+    </div>
+  );
+}
+
+function RecurringMonthSlot() {
+  return (
+    <div aria-hidden="true" className="invisible rounded-[1.2rem] border px-4 py-3">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <p className="font-semibold">mes</p>
+        <p className="font-semibold">$0</p>
+      </div>
+      <div className="mt-3 h-2.5" />
+    </div>
+  );
+}
+
 export function CompareStatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedRecurringExpense, setSelectedRecurringExpense] = useState<string | null>(null);
-  const [monthPage, setMonthPage] = useState<number | null>(null);
-  const [recurringMonthPage, setRecurringMonthPage] = useState<number | null>(null);
+  const [monthPage, setMonthPage] = useState(0);
+  const [recurringMonthPage, setRecurringMonthPage] = useState(0);
   const [state, setState] = useState<LoadState>({
     months: [],
     error: "",
@@ -285,8 +323,8 @@ export function CompareStatsScreen() {
     };
   }, []);
 
-  const chronologicalMonths = useMemo(
-    () => [...state.months].sort((firstMonth, secondMonth) => firstMonth.monthKey.localeCompare(secondMonth.monthKey)),
+  const newestFirstMonths = useMemo(
+    () => [...state.months].sort((firstMonth, secondMonth) => secondMonth.monthKey.localeCompare(firstMonth.monthKey)),
     [state.months]
   );
   const recurringExpenses = useMemo(() => buildRecurringExpenseStats(state.months), [state.months]);
@@ -311,19 +349,14 @@ export function CompareStatsScreen() {
   const selectedRecurringStats =
     recurringExpenses.find((expense) => expense.normalizedName === selectedRecurringExpense) ??
     mostRecurringExpense;
-  const monthListSlice = useMemo(() => {
-    const selectedIndex = selectedStats
-      ? chronologicalMonths.findIndex((month) => month.monthKey === selectedStats.monthKey)
-      : -1;
-    const pageWithSelection = selectedIndex >= 0 ? Math.floor(selectedIndex / LIST_PAGE_SIZE) : 0;
-
-    return slicePage(chronologicalMonths, monthPage ?? pageWithSelection);
-  }, [chronologicalMonths, monthPage, selectedStats]);
+  const monthListSlice = useMemo(
+    () => slicePage(newestFirstMonths, monthPage),
+    [monthPage, newestFirstMonths]
+  );
   const recurringMonthSlice = useMemo(() => {
-    const months = selectedRecurringStats?.months ?? [];
-    const lastPage = Math.max(0, Math.ceil(months.length / LIST_PAGE_SIZE) - 1);
+    const newestFirst = [...(selectedRecurringStats?.months ?? [])].reverse();
 
-    return slicePage(months, recurringMonthPage ?? lastPage);
+    return slicePage(newestFirst, recurringMonthPage);
   }, [recurringMonthPage, selectedRecurringStats]);
   const recurringMaxTotal = Math.max(
     0,
@@ -409,21 +442,18 @@ export function CompareStatsScreen() {
 
         <div className="mt-4 space-y-3">
           {monthListSlice.items.map((month) => {
-            const chronologicalIndex = chronologicalMonths.findIndex(
+            const newestFirstIndex = newestFirstMonths.findIndex(
               (candidate) => candidate.monthKey === month.monthKey
             );
             const previousMonth =
-              chronologicalIndex > 0 ? chronologicalMonths[chronologicalIndex - 1] : null;
+              newestFirstIndex >= 0 ? newestFirstMonths[newestFirstIndex + 1] ?? null : null;
             const width = maxTotal > 0 ? Math.max((month.total / maxTotal) * 100, 6) : 0;
 
             return (
               <button
                 key={month.monthKey}
                 type="button"
-                onClick={() => {
-                  setSelectedMonth(month.monthKey);
-                  setMonthPage(monthListSlice.page);
-                }}
+                onClick={() => setSelectedMonth(month.monthKey)}
                 aria-pressed={selectedStats?.monthKey === month.monthKey}
                 className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
                   selectedStats?.monthKey === month.monthKey
@@ -452,11 +482,17 @@ export function CompareStatsScreen() {
               </button>
             );
           })}
+          {Array.from(
+            { length: reservedRowCount(monthListSlice.items.length, newestFirstMonths.length) },
+            (_, index) => (
+              <ComparisonMonthSlot key={`month-slot-${index}`} />
+            )
+          )}
         </div>
 
-        {chronologicalMonths.length > LIST_PAGE_SIZE ? (
+        {newestFirstMonths.length > LIST_PAGE_SIZE ? (
           <p className="mt-3 text-xs text-stone-500">
-            Mostrando {monthListSlice.items.length} de {chronologicalMonths.length} meses.
+            Mostrando {monthListSlice.items.length} de {newestFirstMonths.length} meses.
           </p>
         ) : null}
 
@@ -601,7 +637,7 @@ export function CompareStatsScreen() {
                   type="button"
                   onClick={() => {
                     if (expense.normalizedName !== selectedRecurringStats?.normalizedName) {
-                      setRecurringMonthPage(null);
+                      setRecurringMonthPage(0);
                     }
                     setSelectedRecurringExpense(expense.normalizedName);
                   }}
@@ -685,6 +721,17 @@ export function CompareStatsScreen() {
                     </div>
                   );
                 })}
+                {Array.from(
+                  {
+                    length: reservedRowCount(
+                      recurringMonthSlice.items.length,
+                      selectedRecurringStats.months.length
+                    ),
+                  },
+                  (_, index) => (
+                    <RecurringMonthSlot key={`recurring-month-slot-${index}`} />
+                  )
+                )}
               </div>
 
               {selectedRecurringStats.months.length > LIST_PAGE_SIZE ? (
