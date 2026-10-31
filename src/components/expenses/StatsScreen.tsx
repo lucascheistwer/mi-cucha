@@ -55,6 +55,18 @@ function capitalizeMonthLabel(monthKey: string) {
   return `${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)}`;
 }
 
+function formatMonthName(monthKey: string) {
+  const [year, month] = monthKey.split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  const monthLabel = new Intl.DateTimeFormat("es-AR", { month: "long" }).format(date);
+
+  return `${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)}`;
+}
+
+function getMonthYear(monthKey: string) {
+  return monthKey.slice(0, 4);
+}
+
 function buildDefaultPaymentForm(payload: ExpensesDashboardPayload | null): PaymentFormState {
   const settlement = payload?.summary.activeDebt.settlement;
   const fallbackUsers = payload?.users ?? [];
@@ -161,6 +173,7 @@ async function copyTextToClipboard(text: string) {
 
 export function StatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [yearOverride, setYearOverride] = useState<{ year: string; forMonth: string } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORY_FILTER);
   const [spendingRowsPage, setSpendingRowsPage] = useState(0);
   const monthScrollerRef = useRef<HTMLDivElement>(null);
@@ -279,6 +292,27 @@ export function StatsScreen() {
     return [...visibleExpenses].sort(sortExpensesByNewest);
   }, [activeCategoryFilter, state.payload]);
   const visibleMonthKey = state.payload?.currentMonth ?? null;
+  const availableYears = useMemo(() => {
+    const years: string[] = [];
+
+    for (const month of state.payload?.availableMonths ?? []) {
+      const year = getMonthYear(month.monthKey);
+
+      if (!years.includes(year)) {
+        years.push(year);
+      }
+    }
+
+    return years;
+  }, [state.payload]);
+  const selectedYear =
+    yearOverride &&
+    yearOverride.forMonth === visibleMonthKey &&
+    availableYears.includes(yearOverride.year)
+      ? yearOverride.year
+      : visibleMonthKey
+        ? getMonthYear(visibleMonthKey)
+        : null;
 
   useEffect(() => {
     const scroller = monthScrollerRef.current;
@@ -292,6 +326,7 @@ export function StatsScreen() {
     );
 
     if (!selectedChip) {
+      scroller.scrollTo({ left: 0 });
       return;
     }
 
@@ -310,7 +345,7 @@ export function StatsScreen() {
     const nextLeft = Math.min(maxScroll, Math.max(0, scroller.scrollLeft + delta));
 
     scroller.scrollTo({ left: nextLeft, behavior: "smooth" });
-  }, [visibleMonthKey]);
+  }, [selectedYear, visibleMonthKey]);
 
   function openFinalizeDialog(message: string, settlement: ActiveDebtSettlement | null) {
     setFinalizeDialog({
@@ -576,45 +611,73 @@ export function StatsScreen() {
             ) : null}
           </div>
 
-          <div
-            ref={monthScrollerRef}
-            aria-label="Meses"
-            className="-mx-5 flex snap-x snap-mandatory items-center gap-2 overflow-x-auto px-5 pb-1 scroll-px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {payload.availableMonths.map((month) => {
-              const isSelected = month.monthKey === payload.currentMonth;
+          <div className="space-y-2">
+            <div
+              aria-label="Años"
+              className="-mx-5 flex snap-x snap-mandatory gap-2 overflow-x-auto px-5 scroll-px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {availableYears.map((year) => {
+                const isSelected = year === selectedYear;
 
-              return (
-                <button
-                  key={month.monthKey}
-                  type="button"
-                  data-month-key={month.monthKey}
-                  aria-current={isSelected ? "true" : undefined}
-                  aria-label={
-                    month.isFinalized
-                      ? `${capitalizeMonthLabel(month.monthKey)}, cerrado`
-                      : capitalizeMonthLabel(month.monthKey)
-                  }
-                  onClick={() => handleSelectMonth(month.monthKey)}
-                  className={`snap-start inline-flex shrink-0 flex-col items-center gap-0.5 rounded-full px-3.5 py-2 text-sm font-medium whitespace-nowrap transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 ${
-                    isSelected
-                      ? "bg-stone-950 text-white"
-                      : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
-                  }`}
-                >
-                  <span>{capitalizeMonthLabel(month.monthKey)}</span>
-                  {month.isFinalized ? (
-                    <span
-                      className={`text-[10px] font-normal leading-none tracking-wide ${
-                        isSelected ? "text-white/65" : "text-stone-400"
+                return (
+                  <button
+                    key={year}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() =>
+                      setYearOverride({ year, forMonth: payload.currentMonth })
+                    }
+                    className={`snap-start shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 ${
+                      isSelected
+                        ? "bg-stone-950 text-white"
+                        : "border border-stone-300 bg-white text-stone-600 hover:border-stone-400 hover:text-stone-950"
+                    }`}
+                  >
+                    {year}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div
+              ref={monthScrollerRef}
+              aria-label={`Meses de ${selectedYear ?? ""}`}
+              className="-mx-5 flex snap-x snap-mandatory items-center gap-2 overflow-x-auto px-5 pb-1 scroll-px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {payload.availableMonths
+                .filter((month) => getMonthYear(month.monthKey) === selectedYear)
+                .map((month) => {
+                  const isSelected = month.monthKey === payload.currentMonth;
+                  const monthLabel = capitalizeMonthLabel(month.monthKey);
+
+                  return (
+                    <button
+                      key={month.monthKey}
+                      type="button"
+                      data-month-key={month.monthKey}
+                      aria-current={isSelected ? "true" : undefined}
+                      aria-label={month.isFinalized ? `${monthLabel}, cerrado` : monthLabel}
+                      onClick={() => handleSelectMonth(month.monthKey)}
+                      className={`snap-start inline-flex shrink-0 flex-col items-center gap-0.5 rounded-full px-3.5 py-2 text-sm font-medium whitespace-nowrap transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 ${
+                        isSelected
+                          ? "bg-stone-950 text-white"
+                          : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
                       }`}
                     >
-                      cerrado
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
+                      <span>{formatMonthName(month.monthKey)}</span>
+                      {month.isFinalized ? (
+                        <span
+                          className={`text-[10px] font-normal leading-none tracking-wide ${
+                            isSelected ? "text-white/65" : "text-stone-400"
+                          }`}
+                        >
+                          cerrado
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+            </div>
           </div>
 
           {finalizeFeedback || finalizeError || exportFeedback || exportError ? (
