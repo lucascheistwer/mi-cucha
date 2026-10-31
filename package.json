@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/list-pagination.test.ts",
+    "test": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/register-test-alias.mjs --test src/lib/list-pagination.test.ts src/lib/trip-input.test.ts",
     "typecheck": "tsc --noEmit",
     "import:expenses": "node scripts/import-expenses.mjs"
   },

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import { AUTH_COOKIE_NAME, getExpiredSessionCookie, verifySessionToken } from "@/lib/auth";
 import { dbConnect } from "@/lib/dbConnect";
+import { toTripDetail } from "@/lib/trip-format";
+import { parseTripWriteInput } from "@/lib/trip-input";
 import { Trip } from "@/models/Trip";
 import { Household } from "@/models/Household";
 import { User } from "@/models/User";
@@ -46,24 +48,17 @@ export async function GET(request: NextRequest) {
       .sort({ createdAt: -1 })
       .lean();
 
-    const formattedTrips: TripDetail[] = trips.map((trip: any) => ({
-      _id: trip._id.toString(),
-      hogarId: trip.hogarId.toString(),
-      nombre: trip.nombre,
-      descripcion: trip.descripcion,
-      fechaInicio: trip.fechaInicio.toISOString().split("T")[0],
-      fechaFin: trip.fechaFin.toISOString().split("T")[0],
-      ciudades: trip.ciudades,
-      estado: trip.estado,
-      creadoPor: trip.creadoPor._id.toString(),
-      creadoPorDetalle: {
-        _id: trip.creadoPor._id.toString(),
-        nombre: trip.creadoPor.nombre,
-        username: trip.creadoPor.username,
-      },
-      createdAt: trip.createdAt.toISOString(),
-      updatedAt: trip.updatedAt.toISOString(),
-    }));
+    const formattedTrips: TripDetail[] = [];
+
+    for (const trip of trips) {
+      const detail = toTripDetail(trip);
+
+      if (!detail) {
+        return NextResponse.json({ error: "Error al cargar los viajes" }, { status: 500 });
+      }
+
+      formattedTrips.push(detail);
+    }
 
     return NextResponse.json({
       trips: formattedTrips,
@@ -86,14 +81,10 @@ export async function POST(request: NextRequest) {
       return getUnauthorizedResponse();
     }
 
-    const body = await request.json();
-    const { nombre, descripcion, fechaInicio, fechaFin, ciudades } = body;
+    const parsed = parseTripWriteInput(await request.json().catch(() => null));
 
-    if (!nombre || !fechaInicio || !fechaFin || !ciudades || ciudades.length === 0) {
-      return NextResponse.json(
-        { error: "Faltan datos requeridos" },
-        { status: 400 }
-      );
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
     await dbConnect();
@@ -105,11 +96,11 @@ export async function POST(request: NextRequest) {
 
     const trip = await Trip.create({
       hogarId: user.hogarId,
-      nombre,
-      descripcion: descripcion || "",
-      fechaInicio: new Date(fechaInicio),
-      fechaFin: new Date(fechaFin),
-      ciudades,
+      nombre: parsed.value.nombre,
+      descripcion: parsed.value.descripcion,
+      fechaInicio: parsed.value.fechaInicio,
+      fechaFin: parsed.value.fechaFin,
+      ciudades: parsed.value.ciudades,
       estado: "activo",
       creadoPor: user._id,
     });
@@ -118,24 +109,11 @@ export async function POST(request: NextRequest) {
       creadoPor: { _id: Types.ObjectId; nombre: string; username: string };
     }>("creadoPor", "nombre username _id");
 
-    const formattedTrip: TripDetail = {
-      _id: createdTrip._id.toString(),
-      hogarId: createdTrip.hogarId.toString(),
-      nombre: createdTrip.nombre,
-      descripcion: createdTrip.descripcion,
-      fechaInicio: createdTrip.fechaInicio.toISOString().split("T")[0],
-      fechaFin: createdTrip.fechaFin.toISOString().split("T")[0],
-      ciudades: createdTrip.ciudades,
-      estado: createdTrip.estado,
-      creadoPor: createdTrip.creadoPor._id.toString(),
-      creadoPorDetalle: {
-        _id: createdTrip.creadoPor._id.toString(),
-        nombre: createdTrip.creadoPor.nombre,
-        username: createdTrip.creadoPor.username,
-      },
-      createdAt: createdTrip.createdAt.toISOString(),
-      updatedAt: createdTrip.updatedAt.toISOString(),
-    };
+    const formattedTrip = toTripDetail(createdTrip);
+
+    if (!formattedTrip) {
+      return NextResponse.json({ error: "Error al crear el viaje" }, { status: 500 });
+    }
 
     return NextResponse.json({ trip: formattedTrip }, { status: 201 });
   } catch (error) {

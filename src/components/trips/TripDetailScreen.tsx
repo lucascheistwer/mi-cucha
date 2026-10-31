@@ -8,8 +8,9 @@ import { sliceOneBasedPage } from "@/lib/list-pagination";
 import { TRIP_EXPENSE_CATEGORIES } from "@/lib/trip-expense-categories";
 import { QuickTripExpenseForm } from "@/components/trips/QuickTripExpenseForm";
 import { TripExpenseList, type TripExpenseEditInput } from "@/components/trips/TripExpenseList";
+import { TripManageBar } from "@/components/trips/TripManageBar";
 import { TripSubNav } from "@/components/trips/TripSubNav";
-import type { TripDashboardPayload, TripExpenseListItem } from "@/types/trip";
+import type { TripDashboardPayload, TripDetail, TripExpenseListItem } from "@/types/trip";
 
 type LoadState = {
   payload: TripDashboardPayload | null;
@@ -337,6 +338,26 @@ export function TripDetailScreen() {
   const { payload } = state;
   const tripCategoryValues = TRIP_EXPENSE_CATEGORIES.map((cat) => cat.value);
   const expensePage = sliceOneBasedPage(payload.expenses, currentPage);
+  const isFinalized = payload.trip.estado === "finalizado";
+
+  function handleTripUpdated(trip: TripDetail) {
+    setState((currentState) => {
+      if (!currentState.payload) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        payload: {
+          ...currentState.payload,
+          trip: {
+            ...currentState.payload.trip,
+            ...trip,
+          },
+        },
+      };
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -383,26 +404,34 @@ export function TripDetailScreen() {
         </div>
       </div>
 
-      <div className="space-y-4 rounded-2xl border border-stone-200 bg-white p-4">
-        <h2 className="text-lg font-semibold text-stone-950">
-          Agregar Gasto
-        </h2>
-        <QuickTripExpenseForm
-          users={payload.users}
-          currentUserId={payload.currentUserId}
-          tripStartDate={payload.trip.fechaInicio}
-          tripEndDate={payload.trip.fechaFin}
-          ciudades={payload.trip.ciudades}
-          availableCategories={tripCategoryValues}
-          onCreateExpense={handleCreateExpense}
-          isSubmitting={isSubmitting}
-        />
-        {submitError && (
-          <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {submitError}
-          </div>
-        )}
-      </div>
+      <TripManageBar
+        trip={payload.trip}
+        outstandingDebt={payload.summary.activeDebt.settlement}
+        onUpdated={handleTripUpdated}
+      />
+
+      {isFinalized ? null : (
+        <div className="space-y-4 rounded-2xl border border-stone-200 bg-white p-4">
+          <h2 className="text-lg font-semibold text-stone-950">
+            Agregar Gasto
+          </h2>
+          <QuickTripExpenseForm
+            users={payload.users}
+            currentUserId={payload.currentUserId}
+            tripStartDate={payload.trip.fechaInicio}
+            tripEndDate={payload.trip.fechaFin}
+            ciudades={payload.trip.ciudades}
+            availableCategories={tripCategoryValues}
+            onCreateExpense={handleCreateExpense}
+            isSubmitting={isSubmitting}
+          />
+          {submitError && (
+            <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {submitError}
+            </div>
+          )}
+        </div>
+      )}
 
       {deleteError && (
         <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -426,8 +455,13 @@ export function TripDetailScreen() {
           currentPage={expensePage.pageNumber}
           totalPages={expensePage.totalPages}
           onPageChange={setCurrentPage}
-          onDeleteExpense={handleDeleteExpense}
-          onEditExpense={handleEditExpense}
+          onDeleteExpense={isFinalized ? undefined : handleDeleteExpense}
+          onEditExpense={isFinalized ? undefined : handleEditExpense}
+          emptyDescription={
+            isFinalized
+              ? "Este viaje está finalizado, así que no se pueden sumar gastos."
+              : undefined
+          }
           isDeletingId={isDeletingId}
           isEditingId={isEditingId}
           editError={editError}

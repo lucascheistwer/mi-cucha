@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Types } from "mongoose";
 import { AUTH_COOKIE_NAME, getExpiredSessionCookie, verifySessionToken } from "@/lib/auth";
 import { dbConnect } from "@/lib/dbConnect";
+import { FINALIZED_TRIP_ERROR } from "@/lib/trip-input";
 import { Trip } from "@/models/Trip";
 import { TripExpense } from "@/models/TripExpense";
 import { User } from "@/models/User";
@@ -52,6 +53,10 @@ export async function POST(
 
     if (!trip) {
       return getUnauthorizedResponse();
+    }
+
+    if (trip.estado === "finalizado") {
+      return NextResponse.json({ error: FINALIZED_TRIP_ERROR }, { status: 409 });
     }
 
     const expense = await TripExpense.create({
