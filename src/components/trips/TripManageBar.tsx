@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 
 import { formatCurrency } from "@/lib/utils";
 import type { ActiveDebtSettlement } from "@/types/expense";
@@ -76,37 +77,39 @@ export function TripManageBar({ trip, outstandingDebt, onUpdated }: TripManageBa
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        <Link
-          href={`/viajes/${trip._id}/editar`}
-          className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
-        >
-          Editar viaje
-        </Link>
-        {isFinalized ? (
-          <button
-            type="button"
-            onClick={() => {
-              setError("");
-              setPendingEstado("activo");
-            }}
-            className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
+      {pendingEstado ? null : (
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/viajes/${trip._id}/editar`}
+            className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
           >
-            Reabrir viaje
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              setError("");
-              setPendingEstado("finalizado");
-            }}
-            className="rounded-full bg-teal-600 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-teal-700"
-          >
-            Finalizar viaje
-          </button>
-        )}
-      </div>
+            Editar viaje
+          </Link>
+          {isFinalized ? (
+            <button
+              type="button"
+              onClick={() => {
+                setError("");
+                setPendingEstado("activo");
+              }}
+              className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:border-stone-400 hover:text-stone-950"
+            >
+              Reabrir viaje
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setError("");
+                setPendingEstado("finalizado");
+              }}
+              className="rounded-full bg-teal-600 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-teal-700"
+            >
+              Finalizar viaje
+            </button>
+          )}
+        </div>
+      )}
 
       {feedback ? (
         <p className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-800">{feedback}</p>
@@ -116,13 +119,14 @@ export function TripManageBar({ trip, outstandingDebt, onUpdated }: TripManageBa
         <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
       ) : null}
 
-      {pendingEstado ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/50 p-4 sm:items-center">
+      {pendingEstado && typeof document !== "undefined"
+        ? createPortal(
+        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-stone-950/50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="trip-status-title"
-            className="w-full max-w-md rounded-[2rem] bg-white p-5 shadow-[0_20px_80px_rgba(28,25,23,0.32)]"
+            className="relative z-[81] w-full max-w-md rounded-[2rem] bg-white p-5 shadow-[0_20px_80px_rgba(28,25,23,0.32)]"
           >
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
@@ -173,8 +177,10 @@ export function TripManageBar({ trip, outstandingDebt, onUpdated }: TripManageBa
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
