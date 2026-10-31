@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import { ListPagination } from "@/components/shared/ListPagination";
 import {
   BalanceOverview,
   CategoryBreakdown,
@@ -14,7 +13,6 @@ import {
 import { formatSignedBalance } from "@/lib/balance-format";
 import { formatExpenseDate, formatMonthLabel, getTodayInputValue } from "@/lib/date-helpers";
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
-import { LIST_PAGE_SIZE, slicePage } from "@/lib/list-pagination";
 import { formatCurrency } from "@/lib/utils";
 import type {
   ActiveDebtSettlement,
@@ -43,7 +41,6 @@ type FinalizeDialogState = {
 };
 
 const ALL_CATEGORY_FILTER = "all";
-const MAX_VISIBLE_MONTHS = LIST_PAGE_SIZE;
 const EXPENSE_CATEGORY_LABELS = new Map<string, string>(
   EXPENSE_CATEGORIES.map((category) => [category.value, category.label])
 );
@@ -52,11 +49,29 @@ async function parseJson<T>(response: Response) {
   return (await response.json().catch(() => null)) as T | null;
 }
 
-function formatSummaryTitle(monthKey: string) {
+function capitalizeMonthLabel(monthKey: string) {
   const monthLabel = formatMonthLabel(monthKey);
 
-  return `Resumen ${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)}`;
+  return `${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)}`;
 }
+
+function formatMonthName(monthKey: string) {
+  const [year, month] = monthKey.split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  const monthLabel = new Intl.DateTimeFormat("es-AR", { month: "long" }).format(date);
+
+  return `${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)}`;
+}
+
+function getMonthYear(monthKey: string) {
+  return monthKey.slice(0, 4);
+}
+
+function formatPickerLabel(monthKey: string) {
+  return `${formatMonthName(monthKey)} ${getMonthYear(monthKey)}`;
+}
+
+const PICKER_MONTH_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 function buildDefaultPaymentForm(payload: ExpensesDashboardPayload | null): PaymentFormState {
   const settlement = payload?.summary.activeDebt.settlement;
@@ -164,9 +179,12 @@ async function copyTextToClipboard(text: string) {
 
 export function StatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORY_FILTER);
-  const [historyPage, setHistoryPage] = useState(0);
   const [spendingRowsPage, setSpendingRowsPage] = useState(0);
+  const finalizeNoticeRef = useRef("");
+  const monthPickerRef = useRef<HTMLDivElement>(null);
   const [paymentsPage, setPaymentsPage] = useState(0);
   const [categoriesPage, setCategoriesPage] = useState(0);
   const [filteredExpensesPage, setFilteredExpensesPage] = useState(0);
@@ -220,10 +238,13 @@ export function StatsScreen() {
         return;
       }
 
+      const finalizeNotice = finalizeNoticeRef.current;
+      finalizeNoticeRef.current = "";
+
       setPaymentForm(buildDefaultPaymentForm(data));
       setPaymentError("");
       setPaymentFeedback("");
-      setFinalizeFeedback("");
+      setFinalizeFeedback(finalizeNotice);
       setFinalizeError("");
       setExportFeedback("");
       setExportError("");
@@ -277,15 +298,27 @@ export function StatsScreen() {
 
     return [...visibleExpenses].sort(sortExpensesByNewest);
   }, [activeCategoryFilter, state.payload]);
-  const visibleMonths = useMemo(() => {
-    const payload = state.payload;
-
-    if (!payload) {
-      return [];
+  useEffect(() => {
+    if (!isMonthPickerOpen) {
+      return;
     }
 
-    return slicePage(payload.availableMonths, historyPage, MAX_VISIBLE_MONTHS).items;
-  }, [historyPage, state.payload]);
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsMonthPickerOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    const selectedButton = monthPickerRef.current?.querySelector<HTMLButtonElement>(
+      "[aria-current='true']"
+    );
+    selectedButton?.focus();
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isMonthPickerOpen]);
 
   function openFinalizeDialog(message: string, settlement: ActiveDebtSettlement | null) {
     setFinalizeDialog({
@@ -324,6 +357,16 @@ export function StatsScreen() {
     setCategoriesPage(0);
     setFilteredExpensesPage(0);
     setSelectedMonth(monthKey);
+    setIsMonthPickerOpen(false);
+  }
+
+  function openMonthPicker() {
+    if (!state.payload) {
+      return;
+    }
+
+    setPickerYear(getMonthYear(state.payload.currentMonth));
+    setIsMonthPickerOpen(true);
   }
 
   function handleSelectCategory(categoryKey: string) {
@@ -385,12 +428,19 @@ export function StatsScreen() {
       }
 
       closeFinalizeDialog();
+      finalizeNoticeRef.current = "Mes finalizado.";
       setFinalizeFeedback("Mes finalizado.");
       setSpendingRowsPage(0);
       setPaymentsPage(0);
       setCategoriesPage(0);
       setFilteredExpensesPage(0);
-      setSelectedMonth(data?.activeMonth ?? null);
+      const nextActiveMonth = data?.activeMonth ?? null;
+
+      if (nextActiveMonth === selectedMonth) {
+        setReloadNonce((currentValue) => currentValue + 1);
+      } else {
+        setSelectedMonth(nextActiveMonth);
+      }
     });
   }
 
@@ -486,11 +536,6 @@ export function StatsScreen() {
   }
 
   const payload = state.payload;
-  const totalHistoryPages = Math.max(1, Math.ceil(payload.availableMonths.length / MAX_VISIBLE_MONTHS));
-  const safeHistoryPage = Math.max(0, Math.min(historyPage, totalHistoryPages - 1));
-  const currentHistoryPage = safeHistoryPage + 1;
-  const canMoveToPreviousHistoryPage = safeHistoryPage > 0;
-  const canMoveToNextHistoryPage = safeHistoryPage < totalHistoryPages - 1;
   const selectedCategoryLabel = selectedCategorySummary
     ? `${selectedCategorySummary.icon} ${selectedCategorySummary.label}`
     : "Todas";
@@ -500,27 +545,80 @@ export function StatsScreen() {
     activeCategoryFilter === ALL_CATEGORY_FILTER
       ? payload.summary.gastoTotal
       : selectedCategorySummary?.total ?? 0;
+  const monthsByKey = new Map(payload.availableMonths.map((month) => [month.monthKey, month]));
+  const pickerYears: string[] = [];
+
+  for (const month of payload.availableMonths) {
+    const year = getMonthYear(month.monthKey);
+
+    if (!pickerYears.includes(year)) {
+      pickerYears.push(year);
+    }
+  }
+
+  const activePickerYear =
+    pickerYear && pickerYears.includes(pickerYear) ? pickerYear : getMonthYear(payload.currentMonth);
+  const pickerYearIndex = pickerYears.indexOf(activePickerYear);
+  const newerPickerYear = pickerYearIndex > 0 ? pickerYears[pickerYearIndex - 1] : null;
+  const olderPickerYear =
+    pickerYearIndex >= 0 && pickerYearIndex < pickerYears.length - 1
+      ? pickerYears[pickerYearIndex + 1]
+      : null;
 
   return (
     <div className="space-y-4">
       <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
         <div className="space-y-4">
-          <h1 className="text-3xl font-semibold tracking-tight text-stone-950">
-            {formatSummaryTitle(payload.currentMonth)}
-          </h1>
-
-          <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
-            <span className="rounded-full bg-teal-50 px-3 py-2 text-teal-800">
-              mes activo {formatMonthLabel(payload.activeMonth)}
-            </span>
-            {payload.monthState.isFinalized ? (
-              <span className="rounded-full bg-stone-100 px-3 py-2 text-stone-700">
-                cerrado {payload.monthState.closedAt ? formatExpenseDate(payload.monthState.closedAt) : ""}
+          <div>
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="text-3xl font-semibold leading-tight tracking-tight text-stone-950">
+                Resumen
+              </h1>
+              <span
+                className={`mt-1.5 shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                  payload.monthState.isFinalized
+                    ? "bg-stone-100 text-stone-600"
+                    : "bg-teal-50 text-teal-800"
+                }`}
+              >
+                {payload.monthState.isFinalized ? "Cerrado" : "Abierto"}
               </span>
-            ) : (
-              <span className="rounded-full bg-amber-50 px-3 py-2 text-amber-800">
-                mes abierto
+            </div>
+            <button
+              type="button"
+              onClick={openMonthPicker}
+              aria-haspopup="dialog"
+              aria-expanded={isMonthPickerOpen}
+              aria-label={`Cambiar mes, ${formatPickerLabel(payload.currentMonth)}`}
+              className="mt-3 flex w-full items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-left transition hover:border-stone-300 hover:bg-white active:bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-teal-800 ring-1 ring-stone-200">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <rect x="4" y="5" width="16" height="15" rx="2" />
+                  <path d="M8 3.5v3M16 3.5v3M4 10h16" strokeLinecap="round" />
+                </svg>
               </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-medium text-stone-500">Cambiar</span>
+                <span className="block truncate text-base font-semibold text-stone-950">
+                  {formatPickerLabel(payload.currentMonth)}
+                </span>
+              </span>
+              <svg
+                viewBox="0 0 20 20"
+                className="h-5 w-5 shrink-0 text-stone-400"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <path d="M5 7.5 10 12.5 15 7.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {payload.monthState.isCurrent ? null : (
+              <p className="mt-1 text-xs text-stone-500">
+                Mes activo: {capitalizeMonthLabel(payload.activeMonth)}
+              </p>
             )}
           </div>
 
@@ -530,97 +628,30 @@ export function StatsScreen() {
               onClick={() => {
                 void handleCopyExpenses();
               }}
-              className="rounded-full border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
+              aria-label="Exportar gastos"
+              className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm font-medium text-stone-700 transition hover:border-stone-300 hover:bg-white hover:text-stone-950"
             >
-              Exportar gastos
+              Exportar
             </button>
             {payload.monthState.canFinalize ? (
               <button
                 type="button"
                 onClick={requestFinalizeConfirmation}
                 disabled={isFinalizingMonth}
-                className="rounded-full border border-teal-300 bg-teal-600 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl border border-stone-200 bg-white px-3 py-1.5 text-sm font-medium text-stone-600 transition hover:border-stone-300 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isFinalizingMonth ? "Finalizando..." : "Finalizar mes"}
               </button>
             ) : null}
           </div>
 
-          <div className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-stone-600">
-                Históricos
-              </h2>
-              <p className="text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
-                Página {currentHistoryPage} de {totalHistoryPages}
-              </p>
+          {finalizeFeedback || finalizeError || exportFeedback || exportError ? (
+            <div className="space-y-1 text-sm">
+              {finalizeFeedback ? <p className="text-teal-800">{finalizeFeedback}</p> : null}
+              {finalizeError ? <p className="text-rose-700">{finalizeError}</p> : null}
+              {exportFeedback ? <p className="text-teal-800">{exportFeedback}</p> : null}
+              {exportError ? <p className="text-rose-700">{exportError}</p> : null}
             </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              {visibleMonths.map((month) => {
-                const isSelected = month.monthKey === payload.currentMonth;
-
-                return (
-                  <button
-                    key={month.monthKey}
-                    type="button"
-                    onClick={() => handleSelectMonth(month.monthKey)}
-                    className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
-                      isSelected
-                        ? "bg-stone-950 text-white"
-                        : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
-                    }`}
-                  >
-                    {formatMonthLabel(month.monthKey)}
-                    {month.isFinalized ? " · cerrado" : month.isCurrent ? " · activo" : ""}
-                  </button>
-                );
-              })}
-            </div>
-
-            {payload.availableMonths.length > MAX_VISIBLE_MONTHS ? (
-              <p className="mt-3 text-xs text-stone-500">
-                Mostrando {visibleMonths.length} de {payload.availableMonths.length} meses.
-              </p>
-            ) : null}
-
-            {totalHistoryPages > 1 ? (
-              <ListPagination
-                currentPage={currentHistoryPage}
-                totalPages={totalHistoryPages}
-                canGoBack={canMoveToPreviousHistoryPage}
-                canGoForward={canMoveToNextHistoryPage}
-                onPrevious={() => setHistoryPage((currentPage) => Math.max(currentPage - 1, 0))}
-                onNext={() =>
-                  setHistoryPage((currentPage) =>
-                    Math.min(currentPage + 1, totalHistoryPages - 1)
-                  )
-                }
-                previousAriaLabel="Ver página anterior de históricos"
-                nextAriaLabel="Ver página siguiente de históricos"
-              />
-            ) : null}
-          </div>
-
-          {finalizeFeedback ? (
-            <p className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-800">
-              {finalizeFeedback}
-            </p>
-          ) : null}
-          {finalizeError ? (
-            <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {finalizeError}
-            </p>
-          ) : null}
-          {exportFeedback ? (
-            <p className="rounded-2xl bg-teal-50 px-4 py-3 text-sm text-teal-800">
-              {exportFeedback}
-            </p>
-          ) : null}
-          {exportError ? (
-            <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {exportError}
-            </p>
           ) : null}
         </div>
       </section>
@@ -838,6 +869,98 @@ export function StatsScreen() {
         filteredPage={filteredExpensesPage}
         onFilteredPageChange={setFilteredExpensesPage}
       />
+
+      {isMonthPickerOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/50 p-4 sm:items-center"
+          onClick={() => setIsMonthPickerOpen(false)}
+        >
+          <div
+            ref={monthPickerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="month-picker-title"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-md rounded-[2rem] bg-white p-5 shadow-[0_20px_80px_rgba(28,25,23,0.32)]"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="month-picker-title" className="text-lg font-semibold tracking-tight text-stone-950">
+                Elegir mes
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsMonthPickerOpen(false)}
+                className="rounded-full px-3 py-1.5 text-sm font-medium text-stone-500 transition hover:bg-stone-100 hover:text-stone-950"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                aria-label="Año anterior"
+                disabled={!olderPickerYear}
+                onClick={() => {
+                  if (olderPickerYear) {
+                    setPickerYear(olderPickerYear);
+                  }
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-stone-200 text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M12.5 5 7.5 10l5 5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <p className="text-2xl font-semibold tracking-tight text-stone-950">{activePickerYear}</p>
+              <button
+                type="button"
+                aria-label="Año siguiente"
+                disabled={!newerPickerYear}
+                onClick={() => {
+                  if (newerPickerYear) {
+                    setPickerYear(newerPickerYear);
+                  }
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-stone-200 text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M7.5 5 12.5 10l-5 5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {PICKER_MONTH_NUMBERS.map((monthNumber) => {
+                const monthKey = `${activePickerYear}-${String(monthNumber).padStart(2, "0")}`;
+                const month = monthsByKey.get(monthKey);
+                const isSelected = monthKey === payload.currentMonth;
+                const monthName = formatMonthName(monthKey);
+
+                return (
+                  <button
+                    key={monthKey}
+                    type="button"
+                    disabled={!month}
+                    aria-current={isSelected ? "true" : undefined}
+                    aria-label={
+                      month?.isFinalized ? `${monthName} ${activePickerYear}, cerrado` : `${monthName} ${activePickerYear}`
+                    }
+                    onClick={() => handleSelectMonth(monthKey)}
+                    className={`rounded-2xl px-2 py-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 disabled:cursor-not-allowed disabled:text-stone-300 ${
+                      isSelected
+                        ? "bg-stone-950 text-white"
+                        : "text-stone-800 hover:bg-stone-100"
+                    }`}
+                  >
+                    {monthName}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {finalizeDialog.isOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/50 p-4 sm:items-center">
