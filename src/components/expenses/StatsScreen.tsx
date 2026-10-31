@@ -67,6 +67,12 @@ function getMonthYear(monthKey: string) {
   return monthKey.slice(0, 4);
 }
 
+function formatPickerLabel(monthKey: string) {
+  return `${formatMonthName(monthKey)} ${getMonthYear(monthKey)}`;
+}
+
+const PICKER_MONTH_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+
 function buildDefaultPaymentForm(payload: ExpensesDashboardPayload | null): PaymentFormState {
   const settlement = payload?.summary.activeDebt.settlement;
   const fallbackUsers = payload?.users ?? [];
@@ -173,11 +179,12 @@ async function copyTextToClipboard(text: string) {
 
 export function StatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [yearOverride, setYearOverride] = useState<{ year: string; forMonth: string } | null>(null);
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORY_FILTER);
   const [spendingRowsPage, setSpendingRowsPage] = useState(0);
-  const monthScrollerRef = useRef<HTMLDivElement>(null);
   const finalizeNoticeRef = useRef("");
+  const monthPickerRef = useRef<HTMLDivElement>(null);
   const [paymentsPage, setPaymentsPage] = useState(0);
   const [categoriesPage, setCategoriesPage] = useState(0);
   const [filteredExpensesPage, setFilteredExpensesPage] = useState(0);
@@ -291,61 +298,27 @@ export function StatsScreen() {
 
     return [...visibleExpenses].sort(sortExpensesByNewest);
   }, [activeCategoryFilter, state.payload]);
-  const visibleMonthKey = state.payload?.currentMonth ?? null;
-  const availableYears = useMemo(() => {
-    const years: string[] = [];
+  useEffect(() => {
+    if (!isMonthPickerOpen) {
+      return;
+    }
 
-    for (const month of state.payload?.availableMonths ?? []) {
-      const year = getMonthYear(month.monthKey);
-
-      if (!years.includes(year)) {
-        years.push(year);
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsMonthPickerOpen(false);
       }
     }
 
-    return years;
-  }, [state.payload]);
-  const selectedYear =
-    yearOverride &&
-    yearOverride.forMonth === visibleMonthKey &&
-    availableYears.includes(yearOverride.year)
-      ? yearOverride.year
-      : visibleMonthKey
-        ? getMonthYear(visibleMonthKey)
-        : null;
-
-  useEffect(() => {
-    const scroller = monthScrollerRef.current;
-
-    if (!scroller || !visibleMonthKey) {
-      return;
-    }
-
-    const selectedChip = scroller.querySelector<HTMLElement>(
-      `[data-month-key="${visibleMonthKey}"]`
+    document.addEventListener("keydown", handleKeyDown);
+    const selectedButton = monthPickerRef.current?.querySelector<HTMLButtonElement>(
+      "[aria-current='true']"
     );
+    selectedButton?.focus();
 
-    if (!selectedChip) {
-      scroller.scrollTo({ left: 0 });
-      return;
-    }
-
-    const scrollerRect = scroller.getBoundingClientRect();
-    const chipRect = selectedChip.getBoundingClientRect();
-    const isFullyVisible =
-      chipRect.left >= scrollerRect.left - 1 && chipRect.right <= scrollerRect.right + 1;
-
-    if (isFullyVisible) {
-      return;
-    }
-
-    const delta =
-      chipRect.left - scrollerRect.left - (scrollerRect.width - chipRect.width) / 2;
-    const maxScroll = scroller.scrollWidth - scroller.clientWidth;
-    const nextLeft = Math.min(maxScroll, Math.max(0, scroller.scrollLeft + delta));
-
-    scroller.scrollTo({ left: nextLeft, behavior: "smooth" });
-  }, [selectedYear, visibleMonthKey]);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isMonthPickerOpen]);
 
   function openFinalizeDialog(message: string, settlement: ActiveDebtSettlement | null) {
     setFinalizeDialog({
@@ -384,6 +357,16 @@ export function StatsScreen() {
     setCategoriesPage(0);
     setFilteredExpensesPage(0);
     setSelectedMonth(monthKey);
+    setIsMonthPickerOpen(false);
+  }
+
+  function openMonthPicker() {
+    if (!state.payload) {
+      return;
+    }
+
+    setPickerYear(getMonthYear(state.payload.currentMonth));
+    setIsMonthPickerOpen(true);
   }
 
   function handleSelectCategory(categoryKey: string) {
@@ -562,25 +545,65 @@ export function StatsScreen() {
     activeCategoryFilter === ALL_CATEGORY_FILTER
       ? payload.summary.gastoTotal
       : selectedCategorySummary?.total ?? 0;
+  const monthsByKey = new Map(payload.availableMonths.map((month) => [month.monthKey, month]));
+  const pickerYears: string[] = [];
+
+  for (const month of payload.availableMonths) {
+    const year = getMonthYear(month.monthKey);
+
+    if (!pickerYears.includes(year)) {
+      pickerYears.push(year);
+    }
+  }
+
+  const activePickerYear =
+    pickerYear && pickerYears.includes(pickerYear) ? pickerYear : getMonthYear(payload.currentMonth);
+  const pickerYearIndex = pickerYears.indexOf(activePickerYear);
+  const newerPickerYear = pickerYearIndex > 0 ? pickerYears[pickerYearIndex - 1] : null;
+  const olderPickerYear =
+    pickerYearIndex >= 0 && pickerYearIndex < pickerYears.length - 1
+      ? pickerYears[pickerYearIndex + 1]
+      : null;
 
   return (
     <div className="space-y-4">
       <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
         <div className="space-y-4">
-          <div className="relative">
-            <h1 className="text-3xl font-semibold leading-tight tracking-tight text-stone-950">
-              <span className="block pr-20">Resumen</span>
-              <span className="mt-1 block">{capitalizeMonthLabel(payload.currentMonth)}</span>
-            </h1>
-            <span
-              className={`absolute top-1 right-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-                payload.monthState.isFinalized
-                  ? "bg-stone-100 text-stone-600"
-                  : "bg-teal-50 text-teal-800"
-              }`}
+          <div>
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="text-3xl font-semibold leading-tight tracking-tight text-stone-950">
+                Resumen
+              </h1>
+              <span
+                className={`mt-1.5 shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                  payload.monthState.isFinalized
+                    ? "bg-stone-100 text-stone-600"
+                    : "bg-teal-50 text-teal-800"
+                }`}
+              >
+                {payload.monthState.isFinalized ? "Cerrado" : "Abierto"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={openMonthPicker}
+              aria-haspopup="dialog"
+              aria-expanded={isMonthPickerOpen}
+              aria-label={`Elegir mes, ${formatPickerLabel(payload.currentMonth)}`}
+              className="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-xl text-left text-3xl font-semibold leading-tight tracking-tight text-stone-950 transition hover:text-teal-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700"
             >
-              {payload.monthState.isFinalized ? "Cerrado" : "Abierto"}
-            </span>
+              <span>{formatPickerLabel(payload.currentMonth)}</span>
+              <svg
+                viewBox="0 0 20 20"
+                className="mt-1 h-5 w-5 shrink-0 text-stone-400"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <path d="M5 7.5 10 12.5 15 7.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
             {payload.monthState.isCurrent ? null : (
               <p className="mt-1 text-xs text-stone-500">
                 Mes activo: {capitalizeMonthLabel(payload.activeMonth)}
@@ -609,75 +632,6 @@ export function StatsScreen() {
                 {isFinalizingMonth ? "Finalizando..." : "Finalizar mes"}
               </button>
             ) : null}
-          </div>
-
-          <div className="space-y-2">
-            <div
-              aria-label="Años"
-              className="-mx-5 flex snap-x snap-mandatory gap-2 overflow-x-auto px-5 scroll-px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            >
-              {availableYears.map((year) => {
-                const isSelected = year === selectedYear;
-
-                return (
-                  <button
-                    key={year}
-                    type="button"
-                    aria-pressed={isSelected}
-                    onClick={() =>
-                      setYearOverride({ year, forMonth: payload.currentMonth })
-                    }
-                    className={`snap-start shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 ${
-                      isSelected
-                        ? "bg-stone-950 text-white"
-                        : "border border-stone-300 bg-white text-stone-600 hover:border-stone-400 hover:text-stone-950"
-                    }`}
-                  >
-                    {year}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div
-              ref={monthScrollerRef}
-              aria-label={`Meses de ${selectedYear ?? ""}`}
-              className="-mx-5 flex snap-x snap-mandatory items-center gap-2 overflow-x-auto px-5 pb-1 scroll-px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            >
-              {payload.availableMonths
-                .filter((month) => getMonthYear(month.monthKey) === selectedYear)
-                .map((month) => {
-                  const isSelected = month.monthKey === payload.currentMonth;
-                  const monthLabel = capitalizeMonthLabel(month.monthKey);
-
-                  return (
-                    <button
-                      key={month.monthKey}
-                      type="button"
-                      data-month-key={month.monthKey}
-                      aria-current={isSelected ? "true" : undefined}
-                      aria-label={month.isFinalized ? `${monthLabel}, cerrado` : monthLabel}
-                      onClick={() => handleSelectMonth(month.monthKey)}
-                      className={`snap-start inline-flex shrink-0 flex-col items-center gap-0.5 rounded-full px-3.5 py-2 text-sm font-medium whitespace-nowrap transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 focus-visible:ring-offset-2 ${
-                        isSelected
-                          ? "bg-stone-950 text-white"
-                          : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
-                      }`}
-                    >
-                      <span>{formatMonthName(month.monthKey)}</span>
-                      {month.isFinalized ? (
-                        <span
-                          className={`text-[10px] font-normal leading-none tracking-wide ${
-                            isSelected ? "text-white/65" : "text-stone-400"
-                          }`}
-                        >
-                          cerrado
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-            </div>
           </div>
 
           {finalizeFeedback || finalizeError || exportFeedback || exportError ? (
@@ -904,6 +858,98 @@ export function StatsScreen() {
         filteredPage={filteredExpensesPage}
         onFilteredPageChange={setFilteredExpensesPage}
       />
+
+      {isMonthPickerOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/50 p-4 sm:items-center"
+          onClick={() => setIsMonthPickerOpen(false)}
+        >
+          <div
+            ref={monthPickerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="month-picker-title"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-md rounded-[2rem] bg-white p-5 shadow-[0_20px_80px_rgba(28,25,23,0.32)]"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="month-picker-title" className="text-lg font-semibold tracking-tight text-stone-950">
+                Elegir mes
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsMonthPickerOpen(false)}
+                className="rounded-full px-3 py-1.5 text-sm font-medium text-stone-500 transition hover:bg-stone-100 hover:text-stone-950"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                aria-label="Año anterior"
+                disabled={!olderPickerYear}
+                onClick={() => {
+                  if (olderPickerYear) {
+                    setPickerYear(olderPickerYear);
+                  }
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-stone-200 text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M12.5 5 7.5 10l5 5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <p className="text-2xl font-semibold tracking-tight text-stone-950">{activePickerYear}</p>
+              <button
+                type="button"
+                aria-label="Año siguiente"
+                disabled={!newerPickerYear}
+                onClick={() => {
+                  if (newerPickerYear) {
+                    setPickerYear(newerPickerYear);
+                  }
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-stone-200 text-stone-700 transition hover:border-stone-400 hover:text-stone-950 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M7.5 5 12.5 10l-5 5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {PICKER_MONTH_NUMBERS.map((monthNumber) => {
+                const monthKey = `${activePickerYear}-${String(monthNumber).padStart(2, "0")}`;
+                const month = monthsByKey.get(monthKey);
+                const isSelected = monthKey === payload.currentMonth;
+                const monthName = formatMonthName(monthKey);
+
+                return (
+                  <button
+                    key={monthKey}
+                    type="button"
+                    disabled={!month}
+                    aria-current={isSelected ? "true" : undefined}
+                    aria-label={
+                      month?.isFinalized ? `${monthName} ${activePickerYear}, cerrado` : `${monthName} ${activePickerYear}`
+                    }
+                    onClick={() => handleSelectMonth(monthKey)}
+                    className={`rounded-2xl px-2 py-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700 disabled:cursor-not-allowed disabled:text-stone-300 ${
+                      isSelected
+                        ? "bg-stone-950 text-white"
+                        : "text-stone-800 hover:bg-stone-100"
+                    }`}
+                  >
+                    {monthName}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {finalizeDialog.isOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/50 p-4 sm:items-center">
