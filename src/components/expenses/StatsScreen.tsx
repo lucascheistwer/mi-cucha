@@ -589,13 +589,24 @@ export function StatsScreen() {
               onClick={openMonthPicker}
               aria-haspopup="dialog"
               aria-expanded={isMonthPickerOpen}
-              aria-label={`Elegir mes, ${formatPickerLabel(payload.currentMonth)}`}
-              className="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-xl text-left text-3xl font-semibold leading-tight tracking-tight text-stone-950 transition hover:text-teal-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700"
+              aria-label={`Cambiar mes, ${formatPickerLabel(payload.currentMonth)}`}
+              className="mt-3 flex w-full items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-left transition hover:border-stone-300 hover:bg-white active:bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-700"
             >
-              <span>{formatPickerLabel(payload.currentMonth)}</span>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-teal-800 ring-1 ring-stone-200">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <rect x="4" y="5" width="16" height="15" rx="2" />
+                  <path d="M8 3.5v3M16 3.5v3M4 10h16" strokeLinecap="round" />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-medium text-stone-500">Cambiar</span>
+                <span className="block truncate text-base font-semibold text-stone-950">
+                  {formatPickerLabel(payload.currentMonth)}
+                </span>
+              </span>
               <svg
                 viewBox="0 0 20 20"
-                className="mt-1 h-5 w-5 shrink-0 text-stone-400"
+                className="h-5 w-5 shrink-0 text-stone-400"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.8"
