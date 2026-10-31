@@ -4,6 +4,7 @@ import { Types } from "mongoose";
 import { AUTH_COOKIE_NAME, getExpiredSessionCookie, verifySessionToken } from "@/lib/auth";
 import { dbConnect } from "@/lib/dbConnect";
 import { parseDateInputValue } from "@/lib/date-helpers";
+import { FINALIZED_TRIP_ERROR } from "@/lib/trip-input";
 import { buildTripSummary } from "@/lib/trip-summary";
 import { Household } from "@/models/Household";
 import { Trip } from "@/models/Trip";
@@ -95,6 +96,10 @@ export async function POST(
 
   if (!trip) {
     return getUnauthorizedResponse();
+  }
+
+  if (trip.estado === "finalizado") {
+    return NextResponse.json({ error: FINALIZED_TRIP_ERROR }, { status: 409 });
   }
 
   const household = await Household.findOne({

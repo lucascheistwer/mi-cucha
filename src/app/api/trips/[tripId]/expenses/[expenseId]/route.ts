@@ -4,6 +4,8 @@ import { AUTH_COOKIE_NAME, getExpiredSessionCookie, verifySessionToken } from "@
 import { dbConnect } from "@/lib/dbConnect";
 import { parseDateInputValue } from "@/lib/date-helpers";
 import { isTripExpenseCategoryValue } from "@/lib/trip-expense-categories";
+import { FINALIZED_TRIP_ERROR } from "@/lib/trip-input";
+import { Trip } from "@/models/Trip";
 import { TripExpense } from "@/models/TripExpense";
 import { User } from "@/models/User";
 import type { TripExpenseListItem } from "@/types/trip";
@@ -113,6 +115,21 @@ export async function PATCH(
       return NextResponse.json({ error: "No encontramos ese gasto." }, { status: 404 });
     }
 
+    const trip = await Trip.findOne({
+      _id: expense.tripId,
+      hogarId: user.hogarId,
+    })
+      .select("estado")
+      .lean();
+
+    if (!trip) {
+      return NextResponse.json({ error: "No encontramos ese gasto." }, { status: 404 });
+    }
+
+    if (trip.estado === "finalizado") {
+      return NextResponse.json({ error: FINALIZED_TRIP_ERROR }, { status: 409 });
+    }
+
     const payer = await User.findOne({ _id: pagadoPor, hogarId: user.hogarId }).lean();
 
     if (!payer) {
@@ -192,6 +209,17 @@ export async function DELETE(
 
     if (!expense) {
       return getUnauthorizedResponse();
+    }
+
+    const trip = await Trip.findOne({
+      _id: expense.tripId,
+      hogarId: user.hogarId,
+    })
+      .select("estado")
+      .lean();
+
+    if (trip?.estado === "finalizado") {
+      return NextResponse.json({ error: FINALIZED_TRIP_ERROR }, { status: 409 });
     }
 
     await TripExpense.deleteOne({ _id: expenseId });

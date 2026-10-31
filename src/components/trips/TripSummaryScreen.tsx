@@ -13,13 +13,19 @@ import {
   PersonBalanceList,
   SummaryPanel,
 } from "@/components/shared/SummaryShells";
+import { TripManageBar } from "@/components/trips/TripManageBar";
 import { TripSubNav } from "@/components/trips/TripSubNav";
 import { formatSignedBalance } from "@/lib/balance-format";
 import { formatExpenseDate, getTodayInputValue } from "@/lib/date-helpers";
 import { buildTripSummary } from "@/lib/trip-summary";
 import { TRIP_EXPENSE_CATEGORIES } from "@/lib/trip-expense-categories";
 import { formatCurrency } from "@/lib/utils";
-import type { TripDashboardPayload, TripExpenseListItem, TripPaymentListItem } from "@/types/trip";
+import type {
+  TripDashboardPayload,
+  TripDetail,
+  TripExpenseListItem,
+  TripPaymentListItem,
+} from "@/types/trip";
 
 type LoadState = {
   payload: TripDashboardPayload | null;
@@ -163,7 +169,15 @@ export function TripSummaryScreen() {
   const expensesByCity = useMemo(() => {
     if (!payload) return [];
 
-    return payload.trip.ciudades
+    const cityNames = [...payload.trip.ciudades];
+
+    for (const expense of payload.expenses) {
+      if (!cityNames.includes(expense.ciudad)) {
+        cityNames.push(expense.ciudad);
+      }
+    }
+
+    return cityNames
       .map((city) => {
         const total = payload.expenses
           .filter((exp) => exp.ciudad === city)
@@ -295,6 +309,28 @@ export function TripSummaryScreen() {
   }
 
   const activeSettlement = payload.summary.activeDebt.settlement;
+  const isFinalized = payload.trip.estado === "finalizado";
+
+  function handleTripUpdated(trip: TripDetail) {
+    setState((currentState) => {
+      if (!currentState.payload) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        payload: {
+          ...currentState.payload,
+          trip: {
+            ...currentState.payload.trip,
+            ...trip,
+          },
+        },
+      };
+    });
+    setPaymentError("");
+    setPaymentFeedback("");
+  }
   const hasActiveSettlement = Boolean(activeSettlement);
   const percentages = payload.summary.activeDebt.percentages;
   const people = payload.users.map((user, index) => {
@@ -343,6 +379,11 @@ export function TripSummaryScreen() {
               {payload.trip.fechaInicio} – {payload.trip.fechaFin}
             </span>
           </div>
+          <TripManageBar
+            trip={payload.trip}
+            outstandingDebt={activeSettlement}
+            onUpdated={handleTripUpdated}
+          />
         </div>
       </section>
 
@@ -395,6 +436,11 @@ export function TripSummaryScreen() {
           }))}
           emptyMessage="Todavía no hay pagos cargados para este viaje."
         >
+          {isFinalized ? (
+            <p className="mt-4 rounded-2xl bg-white/10 px-4 py-3 text-sm text-stone-200">
+              Este viaje está finalizado. No se pueden cargar pagos.
+            </p>
+          ) : (
           <form onSubmit={handleCreatePayment} className="mt-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="space-y-1.5 text-sm text-stone-200">
@@ -497,6 +543,7 @@ export function TripSummaryScreen() {
               </button>
             </div>
           </form>
+          )}
 
           {paymentError ? (
             <p className="mt-3 rounded-2xl bg-rose-500/10 px-4 py-3 text-sm text-rose-200">

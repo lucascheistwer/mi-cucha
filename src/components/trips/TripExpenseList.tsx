@@ -33,6 +33,7 @@ type TripExpenseListProps = {
   isDeletingId?: string | null;
   isEditingId?: string | null;
   editError?: string;
+  emptyDescription?: string;
 };
 
 export function TripExpenseList({
@@ -47,6 +48,7 @@ export function TripExpenseList({
   isDeletingId,
   isEditingId,
   editError,
+  emptyDescription = "Sumá el primero desde el formulario arriba y lo vas a ver acá ordenado al instante.",
 }: TripExpenseListProps) {
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [editingDescripcion, setEditingDescripcion] = useState("");
@@ -63,9 +65,7 @@ export function TripExpenseList({
     return (
       <div className="rounded-[1.75rem] border border-dashed border-stone-300 bg-white/70 px-5 py-10 text-center">
         <p className="text-base font-medium text-stone-900">Todavía no cargaron gastos en este viaje.</p>
-        <p className="mt-2 text-sm leading-6 text-stone-500">
-          Sumá el primero desde el formulario arriba y lo vas a ver acá ordenado al instante.
-        </p>
+        <p className="mt-2 text-sm leading-6 text-stone-500">{emptyDescription}</p>
       </div>
     );
   }
