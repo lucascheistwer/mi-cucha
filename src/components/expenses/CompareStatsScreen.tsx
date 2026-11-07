@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ListPagination } from "@/components/shared/ListPagination";
-import { formatExpenseDate, formatMonthLabel } from "@/lib/date-helpers";
-import { LIST_PAGE_SIZE, slicePage } from "@/lib/list-pagination";
+import { formatExpenseDate, formatMonthLabel, formatShortMonthLabel } from "@/lib/date-helpers";
+import { listMonthKeysInSpan } from "@/lib/month-series";
+import {
+  RECURRING_WINDOW_MONTHS,
+  buildRecurringExpenseStats,
+  filterRecurringExpenses,
+} from "@/lib/recurring-expenses";
 import { formatCurrency } from "@/lib/utils";
 import type { ExpenseListItem, ExpensesDashboardPayload } from "@/types/expense";
 
 type LoadState = {
   months: MonthStats[];
+  activeMonth: string | null;
   error: string;
   isLoading: boolean;
 };
@@ -35,24 +40,6 @@ type MonthStats = {
   isFinalized: boolean;
 };
 
-type RecurringExpenseMonthPoint = {
-  monthKey: string;
-  label: string;
-  total: number;
-};
-
-type RecurringExpenseStats = {
-  normalizedName: string;
-  displayName: string;
-  monthCount: number;
-  totalAmount: number;
-  averageAmount: number;
-  latestAmount: number;
-  latestMonthKey: string;
-  trendAmount: number | null;
-  months: RecurringExpenseMonthPoint[];
-};
-
 async function parseJson<T>(response: Response) {
   return (await response.json().catch(() => null)) as T | null;
 }
@@ -66,88 +53,6 @@ function sortExpensesByAmountDesc(firstExpense: ExpenseListItem, secondExpense: 
     secondExpense.monto - firstExpense.monto ||
     new Date(secondExpense.fecha).getTime() - new Date(firstExpense.fecha).getTime()
   );
-}
-
-function normalizeExpenseDescription(description: string) {
-  return description.trim().replace(/\s+/g, " ").toLocaleLowerCase("es-AR");
-}
-
-function buildRecurringExpenseStats(months: MonthStats[]) {
-  const expensesByName = new Map<
-    string,
-    {
-      displayName: string;
-      months: Map<string, RecurringExpenseMonthPoint>;
-    }
-  >();
-
-  months.forEach((month) => {
-    const monthlyTotals = new Map<string, { displayName: string; total: number }>();
-
-    month.expenses.forEach((expense) => {
-      const normalizedName = normalizeExpenseDescription(expense.descripcion);
-      const currentTotal = monthlyTotals.get(normalizedName);
-
-      monthlyTotals.set(normalizedName, {
-        displayName: currentTotal?.displayName ?? expense.descripcion.trim(),
-        total: roundCurrencyAmount((currentTotal?.total ?? 0) + expense.monto),
-      });
-    });
-
-    monthlyTotals.forEach((entry, normalizedName) => {
-      const currentEntry = expensesByName.get(normalizedName) ?? {
-        displayName: entry.displayName,
-        months: new Map<string, RecurringExpenseMonthPoint>(),
-      };
-
-      if (entry.displayName.length > currentEntry.displayName.length) {
-        currentEntry.displayName = entry.displayName;
-      }
-
-      currentEntry.months.set(month.monthKey, {
-        monthKey: month.monthKey,
-        label: month.label,
-        total: entry.total,
-      });
-
-      expensesByName.set(normalizedName, currentEntry);
-    });
-  });
-
-  return Array.from(expensesByName.entries())
-    .map<RecurringExpenseStats | null>(([normalizedName, entry]) => {
-      if (entry.months.size < 2) {
-        return null;
-      }
-
-      const recurringMonths = Array.from(entry.months.values()).sort((firstMonth, secondMonth) =>
-        firstMonth.monthKey.localeCompare(secondMonth.monthKey)
-      );
-      const totalAmount = roundCurrencyAmount(
-        recurringMonths.reduce((runningTotal, month) => runningTotal + month.total, 0)
-      );
-      const latestMonth = recurringMonths[recurringMonths.length - 1];
-      const previousMonth = recurringMonths[recurringMonths.length - 2] ?? null;
-
-      return {
-        normalizedName,
-        displayName: entry.displayName,
-        monthCount: recurringMonths.length,
-        totalAmount,
-        averageAmount: totalAmount / recurringMonths.length,
-        latestAmount: latestMonth.total,
-        latestMonthKey: latestMonth.monthKey,
-        trendAmount: previousMonth ? latestMonth.total - previousMonth.total : null,
-        months: recurringMonths,
-      };
-    })
-    .filter((expense): expense is RecurringExpenseStats => expense !== null)
-    .sort(
-      (firstExpense, secondExpense) =>
-        secondExpense.monthCount - firstExpense.monthCount ||
-        secondExpense.totalAmount - firstExpense.totalAmount ||
-        secondExpense.latestMonthKey.localeCompare(firstExpense.latestMonthKey)
-    );
 }
 
 function buildMonthStats(payload: ExpensesDashboardPayload): MonthStats {
@@ -206,40 +111,179 @@ function getDeltaTone(currentTotal: number, previousTotal: number | null) {
   return currentTotal > previousTotal ? "text-rose-700" : "text-teal-700";
 }
 
-function reservedRowCount(visibleCount: number, totalCount: number) {
-  if (totalCount <= LIST_PAGE_SIZE) {
-    return 0;
-  }
-
-  return Math.max(0, LIST_PAGE_SIZE - visibleCount);
+function emptyMonthStats(monthKey: string, activeMonth: string | null): MonthStats {
+  return {
+    monthKey,
+    label: formatMonthLabel(monthKey),
+    total: 0,
+    expenseCount: 0,
+    averageExpense: 0,
+    paymentTotal: 0,
+    expenses: [],
+    topExpenses: [],
+    topCategory: null,
+    topThreeTotal: 0,
+    topThreeShare: 0,
+    isCurrent: monthKey === activeMonth,
+    isFinalized: false,
+  };
 }
 
-function ComparisonMonthSlot() {
-  return (
-    <div aria-hidden="true" className="invisible w-full rounded-[1.3rem] border px-4 py-3">
-      <div className="flex items-start justify-between gap-3 text-sm">
-        <div>
-          <p className="font-semibold">mes</p>
-          <p className="mt-0.5 text-xs">vs anterior</p>
-        </div>
-        <div className="text-right">
-          <p className="font-semibold">$0</p>
-          <p className="text-xs">0 gastos</p>
-        </div>
-      </div>
-      <div className="mt-3 h-2.5" />
-    </div>
+function buildComparisonMonths(months: readonly MonthStats[], activeMonth: string | null) {
+  const monthsByKey = new Map(months.map((month) => [month.monthKey, month]));
+
+  return listMonthKeysInSpan(months.map((month) => month.monthKey)).map(
+    (monthKey) => monthsByKey.get(monthKey) ?? emptyMonthStats(monthKey, activeMonth)
   );
 }
 
-function RecurringMonthSlot() {
+type ChartMonth = {
+  monthKey: string;
+  label: string;
+  total: number;
+};
+
+function formatTrendPercent(value: number) {
+  const rounded = Math.round(value);
+
+  if (!Number.isFinite(rounded)) {
+    return null;
+  }
+
+  return rounded > 0 ? `+${rounded}%` : `${rounded}%`;
+}
+
+function MonthBarChart({
+  months,
+  selectedMonthKey,
+  onSelectMonth,
+  label,
+}: {
+  months: readonly ChartMonth[];
+  selectedMonthKey: string;
+  onSelectMonth: (monthKey: string) => void;
+  label: string;
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const scrollable = months.length > 12;
+  const maxTotal = Math.max(0, ...months.map((month) => month.total));
+
+  function moveSelection(direction: -1 | 1) {
+    const selectedIndex = months.findIndex((month) => month.monthKey === selectedMonthKey);
+    const nextIndex = selectedIndex + direction;
+
+    if (nextIndex < 0 || nextIndex >= months.length) {
+      return;
+    }
+
+    const nextMonth = months[nextIndex];
+
+    if (!nextMonth) {
+      return;
+    }
+
+    onSelectMonth(nextMonth.monthKey);
+    const buttons = scrollerRef.current?.querySelectorAll("button");
+    buttons?.[nextIndex]?.focus();
+  }
+
+  function scrollByPage(direction: -1 | 1) {
+    const scroller = scrollerRef.current;
+
+    if (!scroller) {
+      return;
+    }
+
+    scroller.scrollBy({ left: direction * scroller.clientWidth * 0.8, behavior: "smooth" });
+  }
+
   return (
-    <div aria-hidden="true" className="invisible rounded-[1.2rem] border px-4 py-3">
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <p className="font-semibold">mes</p>
-        <p className="font-semibold">$0</p>
+    <div>
+      {scrollable ? (
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            aria-label="Ver meses anteriores"
+            onClick={() => scrollByPage(-1)}
+            className="rounded-full border border-stone-300 px-3 py-1 text-sm text-stone-700"
+          >
+            ‹
+          </button>
+          <p className="truncate text-xs text-stone-500">
+            {months[0]?.label} – {months[months.length - 1]?.label}
+          </p>
+          <button
+            type="button"
+            aria-label="Ver meses siguientes"
+            onClick={() => scrollByPage(1)}
+            className="rounded-full border border-stone-300 px-3 py-1 text-sm text-stone-700"
+          >
+            ›
+          </button>
+        </div>
+      ) : null}
+      <div
+        ref={scrollerRef}
+        className={scrollable ? "overflow-x-auto" : undefined}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            moveSelection(-1);
+          }
+
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            moveSelection(1);
+          }
+        }}
+      >
+        <div
+          className="flex h-44 items-end gap-1"
+          role="group"
+          aria-label={label}
+          style={scrollable ? { minWidth: months.length * 40 } : undefined}
+        >
+          {months.map((month, index) => {
+            const isSelected = month.monthKey === selectedMonthKey;
+            const isZero = month.total <= 0;
+            const height = !isZero && maxTotal > 0 ? Math.max((month.total / maxTotal) * 100, 8) : 0;
+            const showYear = index === 0 || month.monthKey.endsWith("-01");
+
+            return (
+              <button
+                key={month.monthKey}
+                type="button"
+                title={`${month.label}: ${formatCurrency(month.total)}`}
+                aria-label={`${month.label}, ${formatCurrency(month.total)}`}
+                aria-pressed={isSelected}
+                onClick={() => onSelectMonth(month.monthKey)}
+                className={`flex h-full flex-col items-center justify-end gap-1 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 ${
+                  scrollable ? "w-10 shrink-0" : "min-w-0 flex-1"
+                }`}
+              >
+                <span className="flex h-32 w-full items-end">
+                  <span
+                    className={`w-full rounded-t-md ${isZero ? "h-1.5 bg-stone-400" : "bg-teal-500"} ${
+                      isSelected ? "outline outline-2 outline-offset-1 outline-stone-950" : ""
+                    }`}
+                    style={isZero ? undefined : { height: `${height}%` }}
+                  />
+                </span>
+                <span
+                  className={`w-full truncate text-center text-[10px] leading-none ${
+                    isSelected ? "font-semibold text-stone-950" : "text-stone-500"
+                  }`}
+                >
+                  {formatShortMonthLabel(month.monthKey)}
+                </span>
+                <span className="h-3 text-[9px] leading-none text-stone-400">
+                  {showYear ? month.monthKey.slice(0, 4) : ""}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <div className="mt-3 h-2.5" />
     </div>
   );
 }
@@ -247,10 +291,11 @@ function RecurringMonthSlot() {
 export function CompareStatsScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedRecurringExpense, setSelectedRecurringExpense] = useState<string | null>(null);
-  const [monthPage, setMonthPage] = useState(0);
-  const [recurringMonthPage, setRecurringMonthPage] = useState(0);
+  const [recurringQuery, setRecurringQuery] = useState("");
+  const [focusedRecurringMonth, setFocusedRecurringMonth] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>({
     months: [],
+    activeMonth: null,
     error: "",
     isLoading: true,
   });
@@ -268,6 +313,7 @@ export function CompareStatsScreen() {
         if (isMounted) {
           setState({
             months: [],
+            activeMonth: null,
             error: initialPayload?.error ?? "No pudimos cargar las estadísticas.",
             isLoading: false,
           });
@@ -303,7 +349,12 @@ export function CompareStatsScreen() {
         .sort((firstMonth, secondMonth) => secondMonth.monthKey.localeCompare(firstMonth.monthKey));
 
       setSelectedMonth(initialPayload.currentMonth);
-      setState({ months, error: "", isLoading: false });
+      setState({
+        months,
+        activeMonth: initialPayload.activeMonth,
+        error: "",
+        isLoading: false,
+      });
     }
 
     void loadMonths().catch((error: unknown) => {
@@ -313,6 +364,7 @@ export function CompareStatsScreen() {
 
       setState({
         months: [],
+        activeMonth: null,
         error: error instanceof Error ? error.message : "No pudimos cargar las estadísticas.",
         isLoading: false,
       });
@@ -323,14 +375,31 @@ export function CompareStatsScreen() {
     };
   }, []);
 
-  const newestFirstMonths = useMemo(
-    () => [...state.months].sort((firstMonth, secondMonth) => secondMonth.monthKey.localeCompare(firstMonth.monthKey)),
-    [state.months]
+  const comparisonMonths = useMemo(
+    () => buildComparisonMonths(state.months, state.activeMonth),
+    [state.activeMonth, state.months]
   );
-  const recurringExpenses = useMemo(() => buildRecurringExpenseStats(state.months), [state.months]);
-  const maxTotal = Math.max(0, ...state.months.map((month) => month.total));
+  const recurringExpenses = useMemo(
+    () =>
+      state.activeMonth
+        ? buildRecurringExpenseStats(state.months, { activeMonth: state.activeMonth })
+        : [],
+    [state.activeMonth, state.months]
+  );
+  const filteredRecurringExpenses = useMemo(
+    () => filterRecurringExpenses(recurringExpenses, recurringQuery),
+    [recurringExpenses, recurringQuery]
+  );
+  const visibleRecurringQuery = recurringQuery.trim();
   const selectedStats =
-    state.months.find((month) => month.monthKey === selectedMonth) ?? state.months[0] ?? null;
+    comparisonMonths.find((month) => month.monthKey === selectedMonth) ??
+    comparisonMonths[comparisonMonths.length - 1] ??
+    null;
+  const selectedComparisonIndex = selectedStats
+    ? comparisonMonths.findIndex((month) => month.monthKey === selectedStats.monthKey)
+    : -1;
+  const previousComparisonMonth =
+    selectedComparisonIndex > 0 ? comparisonMonths[selectedComparisonIndex - 1] ?? null : null;
   const peakMonth = state.months.reduce<MonthStats | null>(
     (currentPeakMonth, month) =>
       !currentPeakMonth || month.total > currentPeakMonth.total ? month : currentPeakMonth,
@@ -349,19 +418,19 @@ export function CompareStatsScreen() {
   const selectedRecurringStats =
     recurringExpenses.find((expense) => expense.normalizedName === selectedRecurringExpense) ??
     mostRecurringExpense;
-  const monthListSlice = useMemo(
-    () => slicePage(newestFirstMonths, monthPage),
-    [monthPage, newestFirstMonths]
+  const selectedRecurringIsVisible = filteredRecurringExpenses.some(
+    (expense) => expense.normalizedName === selectedRecurringStats?.normalizedName
   );
-  const recurringMonthSlice = useMemo(() => {
-    const newestFirst = [...(selectedRecurringStats?.months ?? [])].reverse();
-
-    return slicePage(newestFirst, recurringMonthPage);
-  }, [recurringMonthPage, selectedRecurringStats]);
-  const recurringMaxTotal = Math.max(
-    0,
-    ...(selectedRecurringStats?.months.map((month) => month.total) ?? [])
-  );
+  const focusedRecurringPoint =
+    selectedRecurringStats?.months.find((month) => month.monthKey === focusedRecurringMonth) ??
+    selectedRecurringStats?.months.at(-1) ??
+    null;
+  const trendPercentLabel =
+    selectedRecurringStats?.trendPercent !== null &&
+    selectedRecurringStats?.trendPercent !== undefined &&
+    selectedRecurringStats.trendBaselineAmount
+      ? formatTrendPercent(selectedRecurringStats.trendPercent)
+      : null;
 
   if (state.isLoading) {
     return (
@@ -419,7 +488,9 @@ export function CompareStatsScreen() {
                 {mostRecurringExpense?.displayName ?? "-"}
               </p>
               <p className="text-xs text-amber-700">
-                {mostRecurringExpense ? `${mostRecurringExpense.monthCount} meses detectados` : ""}
+                {mostRecurringExpense
+                  ? `${mostRecurringExpense.monthCount} meses · ${mostRecurringExpense.transactionCount} veces`
+                  : `sin repetidos en ${RECURRING_WINDOW_MONTHS} meses`}
               </p>
             </div>
           </div>
@@ -432,84 +503,41 @@ export function CompareStatsScreen() {
             Evolución mensual
           </h2>
           <span className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
-            {state.months.length} meses
+            {comparisonMonths.length === 1 ? "1 mes" : `${comparisonMonths.length} meses`}
           </span>
         </div>
 
-        <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
-          Página {monthListSlice.pageNumber} de {monthListSlice.totalPages}
-        </p>
-
-        <div className="mt-4 space-y-3">
-          {monthListSlice.items.map((month) => {
-            const newestFirstIndex = newestFirstMonths.findIndex(
-              (candidate) => candidate.monthKey === month.monthKey
-            );
-            const previousMonth =
-              newestFirstIndex >= 0 ? newestFirstMonths[newestFirstIndex + 1] ?? null : null;
-            const width = maxTotal > 0 ? Math.max((month.total / maxTotal) * 100, 6) : 0;
-
-            return (
-              <button
-                key={month.monthKey}
-                type="button"
-                onClick={() => setSelectedMonth(month.monthKey)}
-                aria-pressed={selectedStats?.monthKey === month.monthKey}
-                className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
-                  selectedStats?.monthKey === month.monthKey
-                    ? "border-teal-300 bg-teal-50"
-                    : "border-stone-200 bg-white/80 hover:border-stone-300"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3 text-sm">
-                  <div>
-                    <p className="font-semibold text-stone-950">{month.label}</p>
-                    <p className={`mt-0.5 text-xs ${getDeltaTone(month.total, previousMonth?.total ?? null)}`}>
-                      {formatDelta(month.total, previousMonth?.total ?? null)} vs anterior
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-stone-950">{formatCurrency(month.total)}</p>
-                    <p className="text-xs text-stone-500">{month.expenseCount} gastos</p>
-                  </div>
-                </div>
-                <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-stone-200">
-                  <div
-                    className="h-full rounded-full bg-stone-950 transition-[width]"
-                    style={{ width: `${width}%` }}
-                  />
-                </div>
-              </button>
-            );
-          })}
-          {Array.from(
-            { length: reservedRowCount(monthListSlice.items.length, newestFirstMonths.length) },
-            (_, index) => (
-              <ComparisonMonthSlot key={`month-slot-${index}`} />
-            )
-          )}
-        </div>
-
-        {newestFirstMonths.length > LIST_PAGE_SIZE ? (
-          <p className="mt-3 text-xs text-stone-500">
-            Mostrando {monthListSlice.items.length} de {newestFirstMonths.length} meses.
-          </p>
-        ) : null}
-
-        {monthListSlice.totalPages > 1 ? (
-          <ListPagination
-            currentPage={monthListSlice.pageNumber}
-            totalPages={monthListSlice.totalPages}
-            canGoBack={monthListSlice.canGoBack}
-            canGoForward={monthListSlice.canGoForward}
-            onPrevious={() => setMonthPage(Math.max(monthListSlice.page - 1, 0))}
-            onNext={() =>
-              setMonthPage(Math.min(monthListSlice.page + 1, monthListSlice.totalPages - 1))
-            }
-            previousAriaLabel="Ver página anterior de meses"
-            nextAriaLabel="Ver página siguiente de meses"
-          />
-        ) : null}
+        {comparisonMonths.length === 0 || !selectedStats ? (
+          <p className="mt-4 text-sm text-stone-500">Todavía no hay meses para mostrar.</p>
+        ) : (
+          <div className="mt-4">
+            <MonthBarChart
+              months={comparisonMonths}
+              selectedMonthKey={selectedStats.monthKey}
+              onSelectMonth={setSelectedMonth}
+              label="Evolución mensual"
+            />
+            <div
+              className="mt-3 flex items-center justify-between gap-3 rounded-[1.1rem] border border-teal-200 bg-teal-50 px-3 py-3"
+              aria-live="polite"
+            >
+              <div>
+                <p className="text-sm font-semibold text-stone-950">{selectedStats.label}</p>
+                <p className={`text-xs ${getDeltaTone(selectedStats.total, previousComparisonMonth?.total ?? null)}`}>
+                  {formatDelta(selectedStats.total, previousComparisonMonth?.total ?? null)} vs anterior
+                </p>
+                <p className="text-xs text-stone-600">
+                  {selectedStats.expenseCount === 0
+                    ? "sin gastos"
+                    : selectedStats.expenseCount === 1
+                      ? "1 gasto"
+                      : `${selectedStats.expenseCount} gastos`}
+                </p>
+              </div>
+              <p className="text-sm font-semibold text-stone-950">{formatCurrency(selectedStats.total)}</p>
+            </div>
+          </div>
+        )}
       </section>
 
       {selectedStats ? (
@@ -611,162 +639,166 @@ export function CompareStatsScreen() {
         </section>
       ) : null}
 
-      {recurringExpenses.length > 0 ? (
-        <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight text-stone-950">
-                Evolución por gasto
-              </h2>
-              <p className="mt-1 text-sm text-stone-500">
-                Detectamos gastos repetidos por nombre, sin importar mayúsculas o minúsculas.
-              </p>
-            </div>
-            <span className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
-              {recurringExpenses.length} recurrentes
-            </span>
-          </div>
+      <section className="rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-xl font-semibold tracking-tight text-stone-950">
+            Evolución por gasto
+          </h2>
+          <span className="shrink-0 rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
+            {recurringExpenses.length === 1
+              ? "1 recurrente"
+              : `${recurringExpenses.length} recurrentes`}
+          </span>
+        </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            {recurringExpenses.slice(0, 6).map((expense) => {
-              const isSelected = expense.normalizedName === selectedRecurringStats?.normalizedName;
-
-              return (
-                <button
-                  key={expense.normalizedName}
-                  type="button"
-                  onClick={() => {
-                    if (expense.normalizedName !== selectedRecurringStats?.normalizedName) {
-                      setRecurringMonthPage(0);
-                    }
-                    setSelectedRecurringExpense(expense.normalizedName);
-                  }}
-                  className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition ${
-                    isSelected
-                      ? "bg-stone-950 text-white"
-                      : "border border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:text-stone-950"
-                  }`}
-                >
-                  {expense.displayName}
-                </button>
-              );
-            })}
-          </div>
-
-          {selectedRecurringStats ? (
-            <>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                <div className="rounded-[1.2rem] bg-stone-100 px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                    meses
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-stone-950">
-                    {selectedRecurringStats.monthCount}
-                  </p>
-                </div>
-                <div className="rounded-[1.2rem] bg-teal-50 px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-teal-700">
-                    último valor
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-teal-950">
-                    {formatCurrency(selectedRecurringStats.latestAmount)}
-                  </p>
-                </div>
-                <div className="rounded-[1.2rem] bg-amber-50 px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">
-                    tendencia
-                  </p>
-                  <p
-                    className={`mt-1 text-sm font-semibold ${
-                      getDeltaTone(
-                        selectedRecurringStats.latestAmount,
-                        selectedRecurringStats.latestAmount - (selectedRecurringStats.trendAmount ?? 0)
-                      )
-                    }`}
-                  >
-                    {selectedRecurringStats.trendAmount === null
-                      ? "sin comparación"
-                      : formatDelta(
-                          selectedRecurringStats.latestAmount,
-                          selectedRecurringStats.latestAmount - selectedRecurringStats.trendAmount
-                        )}
-                  </p>
-                </div>
-              </div>
-
-              <p className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
-                Página {recurringMonthSlice.pageNumber} de {recurringMonthSlice.totalPages}
-              </p>
-
-              <div className="mt-3 space-y-3">
-                {recurringMonthSlice.items.map((month) => {
-                  const width =
-                    recurringMaxTotal > 0 ? Math.max((month.total / recurringMaxTotal) * 100, 8) : 0;
-
-                  return (
-                    <div
-                      key={`${selectedRecurringStats.normalizedName}-${month.monthKey}`}
-                      className="rounded-[1.2rem] border border-stone-200 bg-white/80 px-4 py-3"
-                    >
-                      <div className="flex items-center justify-between gap-3 text-sm">
-                        <p className="font-semibold text-stone-950">{month.label}</p>
-                        <p className="font-semibold text-stone-950">{formatCurrency(month.total)}</p>
-                      </div>
-                      <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-stone-200">
-                        <div
-                          className="h-full rounded-full bg-teal-500 transition-[width]"
-                          style={{ width: `${width}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-                {Array.from(
-                  {
-                    length: reservedRowCount(
-                      recurringMonthSlice.items.length,
-                      selectedRecurringStats.months.length
-                    ),
-                  },
-                  (_, index) => (
-                    <RecurringMonthSlot key={`recurring-month-slot-${index}`} />
-                  )
-                )}
-              </div>
-
-              {selectedRecurringStats.months.length > LIST_PAGE_SIZE ? (
-                <p className="mt-3 text-xs text-stone-500">
-                  Mostrando {recurringMonthSlice.items.length} de {selectedRecurringStats.months.length} meses.
+        {recurringExpenses.length === 0 ? (
+          <p className="mt-4 text-sm text-stone-500">Ningún gasto repetido en este año.</p>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <div className="rounded-[1.4rem] border border-stone-200 bg-stone-50 p-3">
+              <label htmlFor="recurring-expense-search" className="sr-only">
+                Buscar gasto
+              </label>
+              <input
+                id="recurring-expense-search"
+                type="search"
+                value={recurringQuery}
+                onChange={(event) => setRecurringQuery(event.target.value)}
+                placeholder="Buscar gasto"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600"
+              />
+              {visibleRecurringQuery ? (
+                <p className="mt-2 text-xs text-stone-500">
+                  {filteredRecurringExpenses.length} de {recurringExpenses.length}
                 </p>
               ) : null}
 
-              {recurringMonthSlice.totalPages > 1 ? (
-                <ListPagination
-                  currentPage={recurringMonthSlice.pageNumber}
-                  totalPages={recurringMonthSlice.totalPages}
-                  canGoBack={recurringMonthSlice.canGoBack}
-                  canGoForward={recurringMonthSlice.canGoForward}
-                  onPrevious={() =>
-                    setRecurringMonthPage(Math.max(recurringMonthSlice.page - 1, 0))
-                  }
-                  onNext={() =>
-                    setRecurringMonthPage(
-                      Math.min(recurringMonthSlice.page + 1, recurringMonthSlice.totalPages - 1)
-                    )
-                  }
-                  previousAriaLabel="Ver página anterior de la evolución del gasto"
-                  nextAriaLabel="Ver página siguiente de la evolución del gasto"
-                />
-              ) : null}
+              {filteredRecurringExpenses.length === 0 ? (
+                <p className="mt-3 text-sm text-stone-600">
+                  Ningún gasto coincide con «{visibleRecurringQuery}».
+                </p>
+              ) : (
+                <div className="mt-3 max-h-56 space-y-2 overflow-y-auto overscroll-contain">
+                  {filteredRecurringExpenses.map((expense) => {
+                    const isSelected = expense.normalizedName === selectedRecurringStats?.normalizedName;
 
-              <p className="mt-3 text-xs text-stone-500">
-                Promedio histórico {formatCurrency(selectedRecurringStats.averageAmount)} · total acumulado{" "}
-                {formatCurrency(selectedRecurringStats.totalAmount)}.
-              </p>
-            </>
-          ) : null}
-        </section>
-      ) : null}
+                    return (
+                      <button
+                        key={expense.normalizedName}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => {
+                          if (expense.normalizedName !== selectedRecurringStats?.normalizedName) {
+                            setFocusedRecurringMonth(null);
+                          }
+                          setSelectedRecurringExpense(expense.normalizedName);
+                        }}
+                        className={`w-full rounded-[1.1rem] border px-3 py-3 text-left transition ${
+                          isSelected
+                            ? "border-teal-300 bg-teal-50"
+                            : "border-stone-200 bg-white hover:border-stone-300"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-stone-950">
+                              {expense.displayName}
+                            </p>
+                            <p className="mt-0.5 text-xs text-stone-500">
+                              {expense.transactionCount} veces · {expense.monthCount} meses · último{" "}
+                              {expense.latestMonthLabel}
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-sm font-semibold text-stone-950">
+                            {formatCurrency(expense.latestAmount)}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {selectedRecurringStats && selectedRecurringIsVisible && focusedRecurringPoint ? (
+              <div className="rounded-[1.4rem] border border-stone-300 bg-white p-3">
+                <p className="truncate text-sm font-semibold text-stone-950">
+                  {selectedRecurringStats.displayName}
+                </p>
+
+                <div className="mt-3">
+                  <MonthBarChart
+                    months={selectedRecurringStats.months}
+                    selectedMonthKey={focusedRecurringPoint.monthKey}
+                    onSelectMonth={setFocusedRecurringMonth}
+                    label="Evolución del gasto"
+                  />
+                  <div
+                    className="mt-3 flex items-center justify-between gap-3 rounded-[1.1rem] border border-teal-200 bg-teal-50 px-3 py-3"
+                    aria-live="polite"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-stone-950">{focusedRecurringPoint.label}</p>
+                      <p className="text-xs text-stone-600">
+                        {focusedRecurringPoint.transactionCount === 0
+                          ? "sin gastos"
+                          : focusedRecurringPoint.transactionCount === 1
+                            ? "1 gasto"
+                            : `${focusedRecurringPoint.transactionCount} gastos sumados`}
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold text-stone-950">
+                      {formatCurrency(focusedRecurringPoint.total)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  <div className="rounded-[1.2rem] bg-stone-100 px-3 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                      promedio
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-stone-950">
+                      {formatCurrency(selectedRecurringStats.averageAmount)}
+                    </p>
+                    <p className="text-[10px] text-stone-500">{RECURRING_WINDOW_MONTHS} meses</p>
+                  </div>
+                  <div className="rounded-[1.2rem] bg-teal-50 px-3 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-teal-700">
+                      mes activo
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-teal-950">
+                      {formatCurrency(selectedRecurringStats.closingAmount)}
+                    </p>
+                  </div>
+                  <div className="rounded-[1.2rem] bg-amber-50 px-3 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">
+                      tendencia
+                    </p>
+                    <p
+                      className={`mt-1 text-sm font-semibold ${getDeltaTone(
+                        selectedRecurringStats.closingAmount,
+                        selectedRecurringStats.trendBaselineAmount
+                      )}`}
+                    >
+                      {formatDelta(
+                        selectedRecurringStats.closingAmount,
+                        selectedRecurringStats.trendBaselineAmount
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-[10px] leading-tight text-amber-800">
+                      {trendPercentLabel ? `${trendPercentLabel} · ` : ""}vs mes anterior
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
