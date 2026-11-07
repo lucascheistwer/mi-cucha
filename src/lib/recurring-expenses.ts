@@ -1,6 +1,6 @@
 // Agrupa gastos del hogar por nombre para Estadísticas.
 // No lee viajes ni escribe descripciones: solo normaliza una copia para comparar.
-import { addMonthsToMonthKey } from "@/lib/date-helpers";
+import { addMonthsToMonthKey, formatMonthLabel } from "@/lib/date-helpers";
 
 export const RECURRING_WINDOW_MONTHS = 12;
 export const RECURRING_MIN_TRANSACTIONS = 3;
@@ -20,9 +20,25 @@ export type RecurringExpenseSourceMonth = {
   expenses: readonly RecurringExpenseSource[];
 };
 
+const SHORT_MONTHS = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+] as const;
+
 export type RecurringExpenseMonthPoint = {
   monthKey: string;
   label: string;
+  shortLabel: string;
   total: number;
   transactionCount: number;
 };
@@ -37,12 +53,12 @@ export type RecurringExpenseStats = {
   latestAmount: number;
   latestMonthKey: string;
   latestMonthLabel: string;
+  closingAmount: number;
   trendAmount: number | null;
+  trendPercent: number | null;
   trendBaselineAmount: number | null;
   trendBaselineMonthKey: string | null;
   trendBaselineLabel: string | null;
-  trendSkipsMonths: number;
-  seriesHasGap: boolean;
   months: RecurringExpenseMonthPoint[];
 };
 
@@ -58,9 +74,16 @@ type SpellingCandidate = {
   latestExpenseIndex: number;
 };
 
+type ActualMonthTotal = {
+  monthKey: string;
+  label: string;
+  total: number;
+  transactionCount: number;
+};
+
 type ExpenseGroup = {
   spellings: Map<string, SpellingCandidate>;
-  months: Map<string, RecurringExpenseMonthPoint>;
+  months: Map<string, ActualMonthTotal>;
   transactionCount: number;
 };
 
@@ -88,6 +111,20 @@ export function getRecurringExpenseWindow(
     startMonthKey: addMonthsToMonthKey(activeMonth, -(windowSize - 1)),
     endMonthKey: activeMonth,
   };
+}
+
+export function recurringChangePercent(current: number, baseline: number) {
+  if (!Number.isFinite(current) || !Number.isFinite(baseline)) {
+    return null;
+  }
+
+  if (baseline === 0) {
+    return current === 0 ? 0 : null;
+  }
+
+  const percent = ((current - baseline) / Math.abs(baseline)) * 100;
+
+  return Number.isFinite(percent) ? percent : null;
 }
 
 export function filterRecurringExpenses<T extends { normalizedName: string }>(
@@ -134,7 +171,7 @@ export function buildRecurringExpenseStats(
 
       const group = groups.get(normalizedName) ?? {
         spellings: new Map<string, SpellingCandidate>(),
-        months: new Map<string, RecurringExpenseMonthPoint>(),
+        months: new Map<string, ActualMonthTotal>(),
         transactionCount: 0,
       };
       group.transactionCount += 1;
@@ -171,60 +208,95 @@ export function buildRecurringExpenseStats(
   });
 
   return Array.from(groups.entries())
-    .map(([normalizedName, group]) => toRecurringExpenseStats(normalizedName, group))
+    .map(([normalizedName, group]) => toRecurringExpenseStats(normalizedName, group, window))
     .filter((expense): expense is RecurringExpenseStats => expense !== null)
     .sort(compareRecurringExpenses);
 }
 
 function toRecurringExpenseStats(
   normalizedName: string,
-  group: ExpenseGroup
+  group: ExpenseGroup,
+  window: RecurringExpenseWindow
 ): RecurringExpenseStats | null {
+  const actualMonthCount = group.months.size;
+
   if (
     group.transactionCount < RECURRING_MIN_TRANSACTIONS ||
-    group.months.size < RECURRING_MIN_DISTINCT_MONTHS
+    actualMonthCount < RECURRING_MIN_DISTINCT_MONTHS
   ) {
     return null;
   }
 
-  const recurringMonths = Array.from(group.months.values()).sort((firstMonth, secondMonth) =>
-    firstMonth.monthKey.localeCompare(secondMonth.monthKey)
-  );
+  const recurringMonths = listWindowMonthKeys(window).map((monthKey) => {
+    const actualMonth = group.months.get(monthKey);
+
+    return {
+      monthKey,
+      label: actualMonth?.label || formatMonthLabel(monthKey),
+      shortLabel: shortMonthLabel(monthKey),
+      total: actualMonth?.total ?? 0,
+      transactionCount: actualMonth?.transactionCount ?? 0,
+    };
+  });
+  const monthsWithExpenses = recurringMonths.filter((month) => month.transactionCount > 0);
+  const latestMonth = monthsWithExpenses[monthsWithExpenses.length - 1];
+  const closingMonth = recurringMonths[recurringMonths.length - 1];
+  const previousCalendarMonth = recurringMonths[recurringMonths.length - 2] ?? null;
+
+  if (!latestMonth || !closingMonth) {
+    return null;
+  }
+
   const totalAmount = roundCurrencyAmount(
-    recurringMonths.reduce((runningTotal, month) => runningTotal + month.total, 0)
+    monthsWithExpenses.reduce((runningTotal, month) => runningTotal + month.total, 0)
   );
-  const latestMonth = recurringMonths[recurringMonths.length - 1];
-  const previousMonth = recurringMonths[recurringMonths.length - 2] ?? null;
-  const trendSkipsMonths = previousMonth
-    ? monthIndex(latestMonth.monthKey) - monthIndex(previousMonth.monthKey) - 1
-    : 0;
 
   return {
     normalizedName,
     displayName: chooseDisplayName(group.spellings),
-    monthCount: recurringMonths.length,
+    monthCount: monthsWithExpenses.length,
     transactionCount: group.transactionCount,
     totalAmount,
     averageAmount: totalAmount / recurringMonths.length,
     latestAmount: latestMonth.total,
     latestMonthKey: latestMonth.monthKey,
     latestMonthLabel: latestMonth.label,
-    trendAmount: previousMonth
-      ? roundCurrencyAmount(latestMonth.total - previousMonth.total)
+    closingAmount: closingMonth.total,
+    trendAmount: previousCalendarMonth
+      ? roundCurrencyAmount(closingMonth.total - previousCalendarMonth.total)
       : null,
-    trendBaselineAmount: previousMonth?.total ?? null,
-    trendBaselineMonthKey: previousMonth?.monthKey ?? null,
-    trendBaselineLabel: previousMonth?.label ?? null,
-    trendSkipsMonths,
-    seriesHasGap: recurringMonths.some((month, index) => {
-      const earlierMonth = recurringMonths[index - 1];
-
-      return earlierMonth
-        ? monthIndex(month.monthKey) - monthIndex(earlierMonth.monthKey) > 1
-        : false;
-    }),
+    trendPercent: previousCalendarMonth
+      ? recurringChangePercent(closingMonth.total, previousCalendarMonth.total)
+      : null,
+    trendBaselineAmount: previousCalendarMonth?.total ?? null,
+    trendBaselineMonthKey: previousCalendarMonth?.monthKey ?? null,
+    trendBaselineLabel: previousCalendarMonth?.label ?? null,
     months: recurringMonths,
   };
+}
+
+function listWindowMonthKeys(window: RecurringExpenseWindow) {
+  const monthKeys: string[] = [];
+  let cursor = window.startMonthKey;
+
+  while (monthKeys.length < 36 && cursor <= window.endMonthKey) {
+    monthKeys.push(cursor);
+    const nextMonth = addMonthsToMonthKey(cursor, 1);
+
+    if (nextMonth <= cursor) {
+      break;
+    }
+
+    cursor = nextMonth;
+  }
+
+  return monthKeys;
+}
+
+function shortMonthLabel(monthKey: string) {
+  const monthNumber = Number(monthKey.slice(5, 7));
+
+  return SHORT_MONTHS[monthNumber - 1] ?? monthKey;
 }
 
 function chooseDisplayName(spellings: Map<string, SpellingCandidate>) {
@@ -251,12 +323,6 @@ function compareRecurringExpenses(firstExpense: RecurringExpenseStats, secondExp
 
 function isInsideWindow(monthKey: string, window: RecurringExpenseWindow) {
   return monthKey >= window.startMonthKey && monthKey <= window.endMonthKey;
-}
-
-function monthIndex(monthKey: string) {
-  const [year, month] = monthKey.split("-").map(Number);
-
-  return year * 12 + (month - 1);
 }
 
 function roundCurrencyAmount(value: number) {

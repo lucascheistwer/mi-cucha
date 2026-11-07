@@ -6,6 +6,7 @@ import {
   filterRecurringExpenses,
   getRecurringExpenseWindow,
   normalizeExpenseDescription,
+  recurringChangePercent,
   type RecurringExpenseSource,
   type RecurringExpenseSourceMonth,
 } from "./recurring-expenses.ts";
@@ -66,12 +67,23 @@ test("buildRecurringExpenseStats requires 3 transactions in 2 distinct months", 
 
   assert.deepEqual(oneMonthBurst, []);
   assert.deepEqual(twoTransactions, []);
+  const october = eligible[0]?.months.find((entry) => entry.monthKey === "2026-10");
+
   assert.equal(eligible.length, 1);
   assert.equal(eligible[0]?.transactionCount, 3);
   assert.equal(eligible[0]?.monthCount, 2);
-  assert.equal(eligible[0]?.months[0]?.transactionCount, 2);
-  assert.equal(eligible[0]?.months[0]?.total, 100);
+  assert.equal(eligible[0]?.months.length, 12);
+  assert.equal(eligible[0]?.months[0]?.monthKey, "2025-12");
+  assert.equal(eligible[0]?.months[0]?.total, 0);
+  assert.equal(eligible[0]?.months[0]?.transactionCount, 0);
+  assert.equal(october?.transactionCount, 2);
+  assert.equal(october?.total, 100);
   assert.equal(eligible[0]?.latestAmount, 30);
+  assert.equal(eligible[0]?.closingAmount, 30);
+  assert.equal(
+    eligible[0]?.months.reduce((total, entry) => total + entry.transactionCount, 0),
+    3
+  );
 });
 
 test("buildRecurringExpenseStats uses the active month as the end of a rolling year", () => {
@@ -88,11 +100,22 @@ test("buildRecurringExpenseStats uses the active month as the end of a rolling y
   assert.equal(stats.length, 1);
   assert.equal(stats[0]?.normalizedName, "seguro");
   assert.equal(stats[0]?.transactionCount, 3);
-  assert.deepEqual(
-    stats[0]?.months.map((entry) => entry.monthKey),
-    ["2025-02", "2026-01"]
-  );
+  assert.equal(stats[0]?.monthCount, 2);
+  assert.equal(stats[0]?.months.length, 12);
+  assert.equal(stats[0]?.months[0]?.monthKey, "2025-02");
+  assert.equal(stats[0]?.months.at(-1)?.monthKey, "2026-01");
+  assert.equal(stats[0]?.months.find((entry) => entry.monthKey === "2025-02")?.total, 20);
+  assert.equal(stats[0]?.months.find((entry) => entry.monthKey === "2026-01")?.total, 5);
+  assert.equal(stats[0]?.months.find((entry) => entry.monthKey === "2025-03")?.total, 0);
+  assert.equal(stats[0]?.months.find((entry) => entry.monthKey === "2025-03")?.transactionCount, 0);
+  assert.equal(stats[0]?.months.some((entry) => entry.monthKey === "2025-01"), false);
+  assert.equal(stats[0]?.months.some((entry) => entry.monthKey === "2026-02"), false);
   assert.equal(stats[0]?.totalAmount, 25);
+  assert.equal(stats[0]?.averageAmount, 25 / 12);
+  assert.equal(stats[0]?.closingAmount, 5);
+  assert.equal(stats[0]?.trendBaselineAmount, 0);
+  assert.equal(stats[0]?.trendAmount, 5);
+  assert.equal(stats[0]?.trendPercent, null);
 });
 
 test("buildRecurringExpenseStats ignores amounts outside the window", () => {
@@ -108,11 +131,16 @@ test("buildRecurringExpenseStats ignores amounts outside the window", () => {
 
   assert.equal(stats.length, 1);
   assert.equal(stats[0]?.transactionCount, 3);
+  assert.equal(stats[0]?.monthCount, 3);
   assert.equal(stats[0]?.totalAmount, 60);
-  assert.deepEqual(
-    stats[0]?.months.map((entry) => entry.monthKey),
-    ["2026-09", "2026-10", "2026-11"]
-  );
+  assert.equal(stats[0]?.months.length, 12);
+  assert.equal(stats[0]?.months[0]?.monthKey, "2025-12");
+  assert.equal(stats[0]?.months.some((entry) => entry.monthKey === "2024-01"), false);
+  assert.equal(stats[0]?.months.find((entry) => entry.monthKey === "2026-09")?.total, 10);
+  assert.equal(stats[0]?.closingAmount, 30);
+  assert.equal(stats[0]?.trendBaselineAmount, 20);
+  assert.equal(stats[0]?.trendAmount, 10);
+  assert.equal(stats[0]?.trendPercent, 50);
 });
 
 test("buildRecurringExpenseStats groups conservative variants and keeps ñ apart", () => {
@@ -156,7 +184,7 @@ test("buildRecurringExpenseStats groups conservative variants and keeps ñ apart
   assert.equal(byName.has("nino"), true);
 });
 
-test("buildRecurringExpenseStats sums a month and reports gaps without filling zeros", () => {
+test("buildRecurringExpenseStats fills every month in the window with zeros", () => {
   const stats = buildRecurringExpenseStats(
     [
       month("2026-01", [expense("Expensas", 19.99), expense("Expensas", 0.02)], "enero de 2026"),
@@ -164,18 +192,40 @@ test("buildRecurringExpenseStats sums a month and reports gaps without filling z
     ],
     { activeMonth: "2026-11" }
   );
+  const series = stats[0];
 
-  assert.equal(stats.length, 1);
-  assert.equal(stats[0]?.months[0]?.total, 20.01);
-  assert.equal(stats[0]?.months[0]?.transactionCount, 2);
-  assert.equal(stats[0]?.totalAmount, 30.01);
-  assert.equal(stats[0]?.averageAmount, 15.005);
-  assert.equal(stats[0]?.trendAmount, -10.01);
-  assert.equal(stats[0]?.trendBaselineAmount, 20.01);
-  assert.equal(stats[0]?.trendBaselineLabel, "enero de 2026");
-  assert.equal(stats[0]?.trendSkipsMonths, 2);
-  assert.equal(stats[0]?.seriesHasGap, true);
-  assert.equal(stats[0]?.months.length, 2);
+  assert.ok(series);
+  assert.equal(series.months.length, 12);
+  assert.equal(series.months[0]?.monthKey, "2025-12");
+  assert.equal(series.months[0]?.total, 0);
+  assert.equal(series.months[0]?.transactionCount, 0);
+  assert.equal(series.months[0]?.shortLabel, "dic");
+  assert.equal(series.months.find((entry) => entry.monthKey === "2026-01")?.total, 20.01);
+  assert.equal(series.months.find((entry) => entry.monthKey === "2026-01")?.transactionCount, 2);
+  assert.equal(series.months.find((entry) => entry.monthKey === "2026-02")?.total, 0);
+  assert.equal(series.months.find((entry) => entry.monthKey === "2026-03")?.total, 0);
+  assert.equal(series.months.find((entry) => entry.monthKey === "2026-04")?.total, 10);
+  assert.equal(series.monthCount, 2);
+  assert.equal(series.transactionCount, 3);
+  assert.equal(
+    series.months.reduce((total, entry) => total + entry.transactionCount, 0),
+    series.transactionCount
+  );
+  assert.equal(series.totalAmount, 30.01);
+  assert.equal(series.averageAmount, 30.01 / 12);
+  assert.equal(series.closingAmount, 0);
+  assert.equal(series.trendBaselineAmount, 0);
+  assert.equal(series.trendAmount, 0);
+  assert.equal(series.trendPercent, 0);
+  assert.equal(Number.isFinite(series.trendPercent), true);
+});
+
+test("recurringChangePercent stays finite when the previous month is zero", () => {
+  assert.equal(recurringChangePercent(0, 0), 0);
+  assert.equal(recurringChangePercent(50, 0), null);
+  assert.equal(recurringChangePercent(50, 25), 100);
+  assert.equal(recurringChangePercent(Number.NaN, 10), null);
+  assert.notEqual(recurringChangePercent(50, 0), Number.POSITIVE_INFINITY);
 });
 
 test("buildRecurringExpenseStats returns every eligible group past the old cap of 6", () => {
