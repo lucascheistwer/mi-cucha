@@ -1,6 +1,6 @@
 // Agrupa gastos del hogar por nombre para Estadísticas.
 // No lee viajes ni escribe descripciones: solo normaliza una copia para comparar.
-import { addMonthsToMonthKey, formatMonthLabel } from "@/lib/date-helpers";
+import { addMonthsToMonthKey, formatMonthLabel, formatShortMonthLabel } from "@/lib/date-helpers";
 
 export const RECURRING_WINDOW_MONTHS = 12;
 export const RECURRING_MIN_TRANSACTIONS = 3;
@@ -19,21 +19,6 @@ export type RecurringExpenseSourceMonth = {
   label: string;
   expenses: readonly RecurringExpenseSource[];
 };
-
-const SHORT_MONTHS = [
-  "ene",
-  "feb",
-  "mar",
-  "abr",
-  "may",
-  "jun",
-  "jul",
-  "ago",
-  "sep",
-  "oct",
-  "nov",
-  "dic",
-] as const;
 
 export type RecurringExpenseMonthPoint = {
   monthKey: string;
@@ -233,7 +218,7 @@ function toRecurringExpenseStats(
     return {
       monthKey,
       label: actualMonth?.label || formatMonthLabel(monthKey),
-      shortLabel: shortMonthLabel(monthKey),
+      shortLabel: formatShortMonthLabel(monthKey),
       total: actualMonth?.total ?? 0,
       transactionCount: actualMonth?.transactionCount ?? 0,
     };
@@ -291,12 +276,6 @@ function listWindowMonthKeys(window: RecurringExpenseWindow) {
   }
 
   return monthKeys;
-}
-
-function shortMonthLabel(monthKey: string) {
-  const monthNumber = Number(monthKey.slice(5, 7));
-
-  return SHORT_MONTHS[monthNumber - 1] ?? monthKey;
 }
 
 function chooseDisplayName(spellings: Map<string, SpellingCandidate>) {

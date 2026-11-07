@@ -62,6 +62,14 @@ export function getDefaultInputValueForMonth(monthKey: string) {
   return `${monthKey}-01`;
 }
 
+const SHORT_MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+export function formatShortMonthLabel(monthKey: string) {
+  const monthNumber = Number(monthKey.slice(5, 7));
+
+  return SHORT_MONTHS[monthNumber - 1] ?? monthKey;
+}
+
 export function formatMonthLabel(monthKey: string) {
   const [year, month] = monthKey.split("-");
   const date = new Date(Number(year), Number(month) - 1, 1);

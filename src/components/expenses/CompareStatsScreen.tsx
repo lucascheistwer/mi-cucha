@@ -1,15 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ListPagination } from "@/components/shared/ListPagination";
-import { formatExpenseDate, formatMonthLabel } from "@/lib/date-helpers";
-import { LIST_PAGE_SIZE, slicePage } from "@/lib/list-pagination";
+import { formatExpenseDate, formatMonthLabel, formatShortMonthLabel } from "@/lib/date-helpers";
+import { listMonthKeysInSpan } from "@/lib/month-series";
 import {
   RECURRING_WINDOW_MONTHS,
   buildRecurringExpenseStats,
   filterRecurringExpenses,
-  type RecurringExpenseMonthPoint,
 } from "@/lib/recurring-expenses";
 import { formatCurrency } from "@/lib/utils";
 import type { ExpenseListItem, ExpensesDashboardPayload } from "@/types/expense";
@@ -113,45 +111,37 @@ function getDeltaTone(currentTotal: number, previousTotal: number | null) {
   return currentTotal > previousTotal ? "text-rose-700" : "text-teal-700";
 }
 
-function reservedRowCount(visibleCount: number, totalCount: number) {
-  if (totalCount <= LIST_PAGE_SIZE) {
-    return 0;
-  }
-
-  return Math.max(0, LIST_PAGE_SIZE - visibleCount);
+function emptyMonthStats(monthKey: string, activeMonth: string | null): MonthStats {
+  return {
+    monthKey,
+    label: formatMonthLabel(monthKey),
+    total: 0,
+    expenseCount: 0,
+    averageExpense: 0,
+    paymentTotal: 0,
+    expenses: [],
+    topExpenses: [],
+    topCategory: null,
+    topThreeTotal: 0,
+    topThreeShare: 0,
+    isCurrent: monthKey === activeMonth,
+    isFinalized: false,
+  };
 }
 
-function ComparisonMonthSlot() {
-  return (
-    <div aria-hidden="true" className="invisible w-full rounded-[1.3rem] border px-4 py-3">
-      <div className="flex items-start justify-between gap-3 text-sm">
-        <div>
-          <p className="font-semibold">mes</p>
-          <p className="mt-0.5 text-xs">vs anterior</p>
-        </div>
-        <div className="text-right">
-          <p className="font-semibold">$0</p>
-          <p className="text-xs">0 gastos</p>
-        </div>
-      </div>
-      <div className="mt-3 h-2.5" />
-    </div>
+function buildComparisonMonths(months: readonly MonthStats[], activeMonth: string | null) {
+  const monthsByKey = new Map(months.map((month) => [month.monthKey, month]));
+
+  return listMonthKeysInSpan(months.map((month) => month.monthKey)).map(
+    (monthKey) => monthsByKey.get(monthKey) ?? emptyMonthStats(monthKey, activeMonth)
   );
 }
 
-function RecurringMonthSlot() {
-  return (
-    <div aria-hidden="true" className="invisible rounded-[1.2rem] border px-4 py-3">
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <div>
-          <p className="font-semibold">mes</p>
-          <p className="text-xs">sin gastos</p>
-        </div>
-        <p className="font-semibold">$0</p>
-      </div>
-    </div>
-  );
-}
+type ChartMonth = {
+  monthKey: string;
+  label: string;
+  total: number;
+};
 
 function formatTrendPercent(value: number) {
   const rounded = Math.round(value);
@@ -163,48 +153,137 @@ function formatTrendPercent(value: number) {
   return rounded > 0 ? `+${rounded}%` : `${rounded}%`;
 }
 
-function RecurringMonthChart({
+function MonthBarChart({
   months,
   selectedMonthKey,
   onSelectMonth,
+  label,
 }: {
-  months: readonly RecurringExpenseMonthPoint[];
+  months: readonly ChartMonth[];
   selectedMonthKey: string;
   onSelectMonth: (monthKey: string) => void;
+  label: string;
 }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const scrollable = months.length > 12;
   const maxTotal = Math.max(0, ...months.map((month) => month.total));
 
-  return (
-    <div className="flex h-40 items-end gap-1" role="group" aria-label="Últimos 12 meses">
-      {months.map((month) => {
-        const isSelected = month.monthKey === selectedMonthKey;
-        const isZero = month.total <= 0;
-        const height = !isZero && maxTotal > 0 ? Math.max((month.total / maxTotal) * 100, 8) : 0;
+  function moveSelection(direction: -1 | 1) {
+    const selectedIndex = months.findIndex((month) => month.monthKey === selectedMonthKey);
+    const nextIndex = selectedIndex + direction;
 
-        return (
+    if (nextIndex < 0 || nextIndex >= months.length) {
+      return;
+    }
+
+    const nextMonth = months[nextIndex];
+
+    if (!nextMonth) {
+      return;
+    }
+
+    onSelectMonth(nextMonth.monthKey);
+    const buttons = scrollerRef.current?.querySelectorAll("button");
+    buttons?.[nextIndex]?.focus();
+  }
+
+  function scrollByPage(direction: -1 | 1) {
+    const scroller = scrollerRef.current;
+
+    if (!scroller) {
+      return;
+    }
+
+    scroller.scrollBy({ left: direction * scroller.clientWidth * 0.8, behavior: "smooth" });
+  }
+
+  return (
+    <div>
+      {scrollable ? (
+        <div className="mb-2 flex items-center justify-between gap-2">
           <button
-            key={month.monthKey}
             type="button"
-            title={`${month.label}: ${formatCurrency(month.total)}`}
-            aria-label={`${month.label}, ${formatCurrency(month.total)}`}
-            aria-pressed={isSelected}
-            onClick={() => onSelectMonth(month.monthKey)}
-            className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
+            aria-label="Ver meses anteriores"
+            onClick={() => scrollByPage(-1)}
+            className="rounded-full border border-stone-300 px-3 py-1 text-sm text-stone-700"
           >
-            <span className="flex h-32 w-full items-end">
-              <span
-                className={`w-full rounded-t-md ${isZero ? "h-1.5 bg-stone-400" : "bg-teal-500"} ${
-                  isSelected ? "outline outline-2 outline-offset-1 outline-stone-950" : ""
-                }`}
-                style={isZero ? undefined : { height: `${height}%` }}
-              />
-            </span>
-            <span className="w-full truncate text-center text-[10px] leading-none text-stone-500">
-              {month.shortLabel}
-            </span>
+            ‹
           </button>
-        );
-      })}
+          <p className="truncate text-xs text-stone-500">
+            {months[0]?.label} – {months[months.length - 1]?.label}
+          </p>
+          <button
+            type="button"
+            aria-label="Ver meses siguientes"
+            onClick={() => scrollByPage(1)}
+            className="rounded-full border border-stone-300 px-3 py-1 text-sm text-stone-700"
+          >
+            ›
+          </button>
+        </div>
+      ) : null}
+      <div
+        ref={scrollerRef}
+        className={scrollable ? "overflow-x-auto" : undefined}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            moveSelection(-1);
+          }
+
+          if (event.key === "ArrowRight") {
+            event.preventDefault();
+            moveSelection(1);
+          }
+        }}
+      >
+        <div
+          className="flex h-44 items-end gap-1"
+          role="group"
+          aria-label={label}
+          style={scrollable ? { minWidth: months.length * 40 } : undefined}
+        >
+          {months.map((month, index) => {
+            const isSelected = month.monthKey === selectedMonthKey;
+            const isZero = month.total <= 0;
+            const height = !isZero && maxTotal > 0 ? Math.max((month.total / maxTotal) * 100, 8) : 0;
+            const showYear = index === 0 || month.monthKey.endsWith("-01");
+
+            return (
+              <button
+                key={month.monthKey}
+                type="button"
+                title={`${month.label}: ${formatCurrency(month.total)}`}
+                aria-label={`${month.label}, ${formatCurrency(month.total)}`}
+                aria-pressed={isSelected}
+                onClick={() => onSelectMonth(month.monthKey)}
+                className={`flex h-full flex-col items-center justify-end gap-1 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 ${
+                  scrollable ? "w-10 shrink-0" : "min-w-0 flex-1"
+                }`}
+              >
+                <span className="flex h-32 w-full items-end">
+                  <span
+                    className={`w-full rounded-t-md ${isZero ? "h-1.5 bg-stone-400" : "bg-teal-500"} ${
+                      isSelected ? "outline outline-2 outline-offset-1 outline-stone-950" : ""
+                    }`}
+                    style={isZero ? undefined : { height: `${height}%` }}
+                  />
+                </span>
+                <span
+                  className={`w-full truncate text-center text-[10px] leading-none ${
+                    isSelected ? "font-semibold text-stone-950" : "text-stone-500"
+                  }`}
+                >
+                  {formatShortMonthLabel(month.monthKey)}
+                </span>
+                <span className="h-3 text-[9px] leading-none text-stone-400">
+                  {showYear ? month.monthKey.slice(0, 4) : ""}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -214,8 +293,6 @@ export function CompareStatsScreen() {
   const [selectedRecurringExpense, setSelectedRecurringExpense] = useState<string | null>(null);
   const [recurringQuery, setRecurringQuery] = useState("");
   const [focusedRecurringMonth, setFocusedRecurringMonth] = useState<string | null>(null);
-  const [monthPage, setMonthPage] = useState(0);
-  const [recurringMonthPage, setRecurringMonthPage] = useState(0);
   const [state, setState] = useState<LoadState>({
     months: [],
     activeMonth: null,
@@ -298,9 +375,9 @@ export function CompareStatsScreen() {
     };
   }, []);
 
-  const newestFirstMonths = useMemo(
-    () => [...state.months].sort((firstMonth, secondMonth) => secondMonth.monthKey.localeCompare(firstMonth.monthKey)),
-    [state.months]
+  const comparisonMonths = useMemo(
+    () => buildComparisonMonths(state.months, state.activeMonth),
+    [state.activeMonth, state.months]
   );
   const recurringExpenses = useMemo(
     () =>
@@ -314,9 +391,15 @@ export function CompareStatsScreen() {
     [recurringExpenses, recurringQuery]
   );
   const visibleRecurringQuery = recurringQuery.trim();
-  const maxTotal = Math.max(0, ...state.months.map((month) => month.total));
   const selectedStats =
-    state.months.find((month) => month.monthKey === selectedMonth) ?? state.months[0] ?? null;
+    comparisonMonths.find((month) => month.monthKey === selectedMonth) ??
+    comparisonMonths[comparisonMonths.length - 1] ??
+    null;
+  const selectedComparisonIndex = selectedStats
+    ? comparisonMonths.findIndex((month) => month.monthKey === selectedStats.monthKey)
+    : -1;
+  const previousComparisonMonth =
+    selectedComparisonIndex > 0 ? comparisonMonths[selectedComparisonIndex - 1] ?? null : null;
   const peakMonth = state.months.reduce<MonthStats | null>(
     (currentPeakMonth, month) =>
       !currentPeakMonth || month.total > currentPeakMonth.total ? month : currentPeakMonth,
@@ -348,15 +431,6 @@ export function CompareStatsScreen() {
     selectedRecurringStats.trendBaselineAmount
       ? formatTrendPercent(selectedRecurringStats.trendPercent)
       : null;
-  const monthListSlice = useMemo(
-    () => slicePage(newestFirstMonths, monthPage),
-    [monthPage, newestFirstMonths]
-  );
-  const recurringMonthSlice = useMemo(() => {
-    const newestFirst = [...(selectedRecurringStats?.months ?? [])].reverse();
-
-    return slicePage(newestFirst, recurringMonthPage);
-  }, [recurringMonthPage, selectedRecurringStats]);
 
   if (state.isLoading) {
     return (
@@ -429,84 +503,41 @@ export function CompareStatsScreen() {
             Evolución mensual
           </h2>
           <span className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-600">
-            {state.months.length} meses
+            {comparisonMonths.length === 1 ? "1 mes" : `${comparisonMonths.length} meses`}
           </span>
         </div>
 
-        <p className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
-          Página {monthListSlice.pageNumber} de {monthListSlice.totalPages}
-        </p>
-
-        <div className="mt-4 space-y-3">
-          {monthListSlice.items.map((month) => {
-            const newestFirstIndex = newestFirstMonths.findIndex(
-              (candidate) => candidate.monthKey === month.monthKey
-            );
-            const previousMonth =
-              newestFirstIndex >= 0 ? newestFirstMonths[newestFirstIndex + 1] ?? null : null;
-            const width = maxTotal > 0 ? Math.max((month.total / maxTotal) * 100, 6) : 0;
-
-            return (
-              <button
-                key={month.monthKey}
-                type="button"
-                onClick={() => setSelectedMonth(month.monthKey)}
-                aria-pressed={selectedStats?.monthKey === month.monthKey}
-                className={`w-full rounded-[1.3rem] border px-4 py-3 text-left transition ${
-                  selectedStats?.monthKey === month.monthKey
-                    ? "border-teal-300 bg-teal-50"
-                    : "border-stone-200 bg-white/80 hover:border-stone-300"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3 text-sm">
-                  <div>
-                    <p className="font-semibold text-stone-950">{month.label}</p>
-                    <p className={`mt-0.5 text-xs ${getDeltaTone(month.total, previousMonth?.total ?? null)}`}>
-                      {formatDelta(month.total, previousMonth?.total ?? null)} vs anterior
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-stone-950">{formatCurrency(month.total)}</p>
-                    <p className="text-xs text-stone-500">{month.expenseCount} gastos</p>
-                  </div>
-                </div>
-                <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-stone-200">
-                  <div
-                    className="h-full rounded-full bg-stone-950 transition-[width]"
-                    style={{ width: `${width}%` }}
-                  />
-                </div>
-              </button>
-            );
-          })}
-          {Array.from(
-            { length: reservedRowCount(monthListSlice.items.length, newestFirstMonths.length) },
-            (_, index) => (
-              <ComparisonMonthSlot key={`month-slot-${index}`} />
-            )
-          )}
-        </div>
-
-        {newestFirstMonths.length > LIST_PAGE_SIZE ? (
-          <p className="mt-3 text-xs text-stone-500">
-            Mostrando {monthListSlice.items.length} de {newestFirstMonths.length} meses.
-          </p>
-        ) : null}
-
-        {monthListSlice.totalPages > 1 ? (
-          <ListPagination
-            currentPage={monthListSlice.pageNumber}
-            totalPages={monthListSlice.totalPages}
-            canGoBack={monthListSlice.canGoBack}
-            canGoForward={monthListSlice.canGoForward}
-            onPrevious={() => setMonthPage(Math.max(monthListSlice.page - 1, 0))}
-            onNext={() =>
-              setMonthPage(Math.min(monthListSlice.page + 1, monthListSlice.totalPages - 1))
-            }
-            previousAriaLabel="Ver página anterior de meses"
-            nextAriaLabel="Ver página siguiente de meses"
-          />
-        ) : null}
+        {comparisonMonths.length === 0 || !selectedStats ? (
+          <p className="mt-4 text-sm text-stone-500">Todavía no hay meses para mostrar.</p>
+        ) : (
+          <div className="mt-4">
+            <MonthBarChart
+              months={comparisonMonths}
+              selectedMonthKey={selectedStats.monthKey}
+              onSelectMonth={setSelectedMonth}
+              label="Evolución mensual"
+            />
+            <div
+              className="mt-3 flex items-center justify-between gap-3 rounded-[1.1rem] border border-teal-200 bg-teal-50 px-3 py-3"
+              aria-live="polite"
+            >
+              <div>
+                <p className="text-sm font-semibold text-stone-950">{selectedStats.label}</p>
+                <p className={`text-xs ${getDeltaTone(selectedStats.total, previousComparisonMonth?.total ?? null)}`}>
+                  {formatDelta(selectedStats.total, previousComparisonMonth?.total ?? null)} vs anterior
+                </p>
+                <p className="text-xs text-stone-600">
+                  {selectedStats.expenseCount === 0
+                    ? "sin gastos"
+                    : selectedStats.expenseCount === 1
+                      ? "1 gasto"
+                      : `${selectedStats.expenseCount} gastos`}
+                </p>
+              </div>
+              <p className="text-sm font-semibold text-stone-950">{formatCurrency(selectedStats.total)}</p>
+            </div>
+          </div>
+        )}
       </section>
 
       {selectedStats ? (
@@ -661,7 +692,6 @@ export function CompareStatsScreen() {
                         aria-pressed={isSelected}
                         onClick={() => {
                           if (expense.normalizedName !== selectedRecurringStats?.normalizedName) {
-                            setRecurringMonthPage(0);
                             setFocusedRecurringMonth(null);
                           }
                           setSelectedRecurringExpense(expense.normalizedName);
@@ -700,17 +730,30 @@ export function CompareStatsScreen() {
                 </p>
 
                 <div className="mt-3">
-                  <RecurringMonthChart
+                  <MonthBarChart
                     months={selectedRecurringStats.months}
                     selectedMonthKey={focusedRecurringPoint.monthKey}
                     onSelectMonth={setFocusedRecurringMonth}
+                    label="Evolución del gasto"
                   />
-                  <p className="mt-2 text-center text-xs text-stone-600">
-                    {focusedRecurringPoint.label} · {formatCurrency(focusedRecurringPoint.total)}
-                    {focusedRecurringPoint.transactionCount > 1
-                      ? ` · ${focusedRecurringPoint.transactionCount} gastos`
-                      : ""}
-                  </p>
+                  <div
+                    className="mt-3 flex items-center justify-between gap-3 rounded-[1.1rem] border border-teal-200 bg-teal-50 px-3 py-3"
+                    aria-live="polite"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-stone-950">{focusedRecurringPoint.label}</p>
+                      <p className="text-xs text-stone-600">
+                        {focusedRecurringPoint.transactionCount === 0
+                          ? "sin gastos"
+                          : focusedRecurringPoint.transactionCount === 1
+                            ? "1 gasto"
+                            : `${focusedRecurringPoint.transactionCount} gastos sumados`}
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold text-stone-950">
+                      {formatCurrency(focusedRecurringPoint.total)}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="mt-4 grid grid-cols-3 gap-2">
@@ -751,74 +794,6 @@ export function CompareStatsScreen() {
                     </p>
                   </div>
                 </div>
-
-                <p className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
-                  Página {recurringMonthSlice.pageNumber} de {recurringMonthSlice.totalPages}
-                </p>
-
-                <div className="mt-3 space-y-2">
-                  {recurringMonthSlice.items.map((month) => (
-                    <div
-                      key={`${selectedRecurringStats.normalizedName}-${month.monthKey}`}
-                      className={`rounded-[1.1rem] border px-3 py-3 ${
-                        month.monthKey === focusedRecurringPoint.monthKey
-                          ? "border-teal-300 bg-teal-50"
-                          : "border-stone-200 bg-white"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3 text-sm">
-                        <div>
-                          <p className="font-semibold text-stone-950">{month.label}</p>
-                          <p className="text-xs text-stone-500">
-                            {month.transactionCount === 0
-                              ? "sin gastos"
-                              : month.transactionCount === 1
-                                ? "1 gasto"
-                                : `${month.transactionCount} gastos sumados`}
-                          </p>
-                        </div>
-                        <p className="font-semibold text-stone-950">{formatCurrency(month.total)}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {Array.from(
-                    {
-                      length: reservedRowCount(
-                        recurringMonthSlice.items.length,
-                        selectedRecurringStats.months.length
-                      ),
-                    },
-                    (_, index) => (
-                      <RecurringMonthSlot key={`recurring-month-slot-${index}`} />
-                    )
-                  )}
-                </div>
-
-                {selectedRecurringStats.months.length > LIST_PAGE_SIZE ? (
-                  <p className="mt-3 text-xs text-stone-500">
-                    Mostrando {recurringMonthSlice.items.length} de {selectedRecurringStats.months.length}{" "}
-                    meses.
-                  </p>
-                ) : null}
-
-                {recurringMonthSlice.totalPages > 1 ? (
-                  <ListPagination
-                    currentPage={recurringMonthSlice.pageNumber}
-                    totalPages={recurringMonthSlice.totalPages}
-                    canGoBack={recurringMonthSlice.canGoBack}
-                    canGoForward={recurringMonthSlice.canGoForward}
-                    onPrevious={() =>
-                      setRecurringMonthPage(Math.max(recurringMonthSlice.page - 1, 0))
-                    }
-                    onNext={() =>
-                      setRecurringMonthPage(
-                        Math.min(recurringMonthSlice.page + 1, recurringMonthSlice.totalPages - 1)
-                      )
-                    }
-                    previousAriaLabel="Ver página anterior de la evolución del gasto"
-                    nextAriaLabel="Ver página siguiente de la evolución del gasto"
-                  />
-                ) : null}
               </div>
             ) : null}
           </div>
