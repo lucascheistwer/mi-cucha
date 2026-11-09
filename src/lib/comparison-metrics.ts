@@ -48,19 +48,21 @@ type InvalidWindow = {
   status: "invalid";
 };
 
-export type RollingMonthlyAverage =
+export type RollingMonthHighlight = {
+  monthKey: string;
+  total: number;
+  expenseCount: number;
+  averageExpense: number;
+};
+
+export type RollingComparison =
   | (ReadyWindow & {
       average: number;
       total: number;
       monthCount: typeof ROLLING_AVERAGE_MONTHS;
-    })
-  | IncompleteWindow
-  | InvalidWindow;
-
-export type ActiveYearStats =
-  | (ReadyWindow & {
-      total: number;
       topCategory: CategorySpend | null;
+      peakMonth: RollingMonthHighlight | null;
+      calmMonth: RollingMonthHighlight | null;
     })
   | IncompleteWindow
   | InvalidWindow;
@@ -81,18 +83,6 @@ function listRollingMonthKeys(activeMonth: string) {
 
   for (let offset = ROLLING_AVERAGE_MONTHS - 1; offset >= 0; offset -= 1) {
     monthKeys.push(addMonthsToMonthKey(activeMonth, -offset));
-  }
-
-  return monthKeys;
-}
-
-function listActiveYearMonthKeys(activeMonth: string) {
-  const year = activeMonth.slice(0, 4);
-  const lastMonth = Number(activeMonth.slice(5, 7));
-  const monthKeys: string[] = [];
-
-  for (let month = 1; month <= lastMonth; month += 1) {
-    monthKeys.push(`${year}-${String(month).padStart(2, "0")}`);
   }
 
   return monthKeys;
@@ -252,38 +242,59 @@ export function formatMonthSpanLabel(startMonthKey: string, endMonthKey: string)
   return `${startLabel} ${startYear} – ${endLabel} ${endYear}`;
 }
 
-export function buildRollingMonthlyAverage(input: ComparisonMetricsInput): RollingMonthlyAverage {
+function monthHighlight(month: ComparisonMonthInput): RollingMonthHighlight {
+  const expenseCount = month.expenses?.length ?? 0;
+
+  return {
+    monthKey: month.monthKey,
+    total: month.total,
+    expenseCount,
+    averageExpense: expenseCount > 0 ? month.total / expenseCount : 0,
+  };
+}
+
+function choosePeakMonth(months: readonly ComparisonMonthInput[]) {
+  return months.reduce<RollingMonthHighlight | null>((peak, month) => {
+    const candidate = monthHighlight(month);
+
+    if (
+      !peak ||
+      candidate.total > peak.total ||
+      (candidate.total === peak.total && candidate.monthKey > peak.monthKey)
+    ) {
+      return candidate;
+    }
+
+    return peak;
+  }, null);
+}
+
+function chooseCalmMonth(months: readonly ComparisonMonthInput[]) {
+  return months.reduce<RollingMonthHighlight | null>((calm, month) => {
+    const candidate = monthHighlight(month);
+
+    if (candidate.expenseCount <= 0) {
+      return calm;
+    }
+
+    if (
+      !calm ||
+      candidate.averageExpense < calm.averageExpense ||
+      (candidate.averageExpense === calm.averageExpense && candidate.monthKey > calm.monthKey)
+    ) {
+      return candidate;
+    }
+
+    return calm;
+  }, null);
+}
+
+export function buildRollingComparison(input: ComparisonMetricsInput): RollingComparison {
   if (!input.activeMonth || !MONTH_KEY_PATTERN.test(input.activeMonth)) {
     return { status: "invalid" };
   }
 
   const monthKeys = listRollingMonthKeys(input.activeMonth);
-  const bounds = windowBounds(monthKeys);
-  const indexed = indexWindowMonths(monthKeys, input, { requireExpenses: false });
-
-  if (!indexed) {
-    return { status: "incomplete", ...bounds };
-  }
-
-  const total = roundCurrency(
-    monthKeys.reduce((sum, monthKey) => sum + (indexed.get(monthKey)?.total ?? 0), 0)
-  );
-
-  return {
-    status: "ready",
-    ...bounds,
-    total,
-    average: roundCurrency(total / ROLLING_AVERAGE_MONTHS),
-    monthCount: ROLLING_AVERAGE_MONTHS,
-  };
-}
-
-export function buildActiveYearStats(input: ComparisonMetricsInput): ActiveYearStats {
-  if (!input.activeMonth || !MONTH_KEY_PATTERN.test(input.activeMonth)) {
-    return { status: "invalid" };
-  }
-
-  const monthKeys = listActiveYearMonthKeys(input.activeMonth);
   const bounds = windowBounds(monthKeys);
   const indexed = indexWindowMonths(monthKeys, input, { requireExpenses: true });
 
@@ -296,12 +307,18 @@ export function buildActiveYearStats(input: ComparisonMetricsInput): ActiveYearS
 
     return month ? [month] : [];
   });
-  const total = roundCurrency(months.reduce((sum, month) => sum + month.total, 0));
+  const total = roundCurrency(
+    monthKeys.reduce((sum, monthKey) => sum + (indexed.get(monthKey)?.total ?? 0), 0)
+  );
 
   return {
     status: "ready",
     ...bounds,
     total,
+    average: roundCurrency(total / ROLLING_AVERAGE_MONTHS),
+    monthCount: ROLLING_AVERAGE_MONTHS,
     topCategory: topCategoryByAmount(months),
+    peakMonth: choosePeakMonth(months),
+    calmMonth: chooseCalmMonth(months),
   };
 }
