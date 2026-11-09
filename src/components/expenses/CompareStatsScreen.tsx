@@ -3,11 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  buildActiveYearStats,
-  buildRollingMonthlyAverage,
+  buildRollingComparison,
   formatMonthSpanLabel,
-  type ActiveYearStats,
-  type RollingMonthlyAverage,
+  type RollingComparison,
 } from "@/lib/comparison-metrics";
 import { formatExpenseDate, formatMonthLabel, formatShortMonthLabel } from "@/lib/date-helpers";
 import { listMonthKeysInSpan } from "@/lib/month-series";
@@ -112,12 +110,12 @@ function formatDelta(currentTotal: number, previousTotal: number | null) {
   return delta > 0 ? `+${formatCurrency(delta)}` : `-${formatCurrency(Math.abs(delta))}`;
 }
 
-function metricRangeLabel(metric: RollingMonthlyAverage | ActiveYearStats) {
+function comparisonRangeText(metric: RollingComparison) {
   if (metric.status === "invalid") {
-    return "";
+    return "últimos 12 meses";
   }
 
-  return formatMonthSpanLabel(metric.startMonthKey, metric.endMonthKey);
+  return `últimos 12 meses · ${formatMonthSpanLabel(metric.startMonthKey, metric.endMonthKey)}`;
 }
 
 function getDeltaTone(currentTotal: number, previousTotal: number | null) {
@@ -440,11 +438,10 @@ export function CompareStatsScreen() {
     }),
     [state.activeMonth, state.expectedMonthKeys, state.failedMonthKeys, state.months]
   );
-  const rollingAverage = useMemo(
-    () => buildRollingMonthlyAverage(comparisonInput),
+  const rollingComparison = useMemo(
+    () => buildRollingComparison(comparisonInput),
     [comparisonInput]
   );
-  const activeYear = useMemo(() => buildActiveYearStats(comparisonInput), [comparisonInput]);
   const recurringExpenses = useMemo(
     () =>
       state.activeMonth
@@ -466,21 +463,10 @@ export function CompareStatsScreen() {
     : -1;
   const previousComparisonMonth =
     selectedComparisonIndex > 0 ? comparisonMonths[selectedComparisonIndex - 1] ?? null : null;
-  const peakMonth = state.months.reduce<MonthStats | null>(
-    (currentPeakMonth, month) =>
-      !currentPeakMonth || month.total > currentPeakMonth.total ? month : currentPeakMonth,
-    null
-  );
-  const calmMonth = state.months
-    .filter((month) => month.expenseCount > 0)
-    .reduce<MonthStats | null>(
-      (currentCalmMonth, month) =>
-        !currentCalmMonth || month.averageExpense < currentCalmMonth.averageExpense
-          ? month
-          : currentCalmMonth,
-      null
-    );
-  const mostRecurringExpense = recurringExpenses[0] ?? null;
+  const comparisonReady = rollingComparison.status === "ready" ? rollingComparison : null;
+  const peakMonth = comparisonReady?.peakMonth ?? null;
+  const calmMonth = comparisonReady?.calmMonth ?? null;
+  const mostRecurringExpense = comparisonReady ? recurringExpenses[0] ?? null : null;
   const selectedRecurringStats =
     recurringExpenses.find((expense) => expense.normalizedName === selectedRecurringExpense) ??
     mostRecurringExpense;
@@ -516,8 +502,8 @@ export function CompareStatsScreen() {
     );
   }
 
-  const rollingRange = metricRangeLabel(rollingAverage);
-  const yearRange = metricRangeLabel(activeYear);
+  const rangeText = comparisonRangeText(rollingComparison);
+  const topCategory = comparisonReady?.topCategory ?? null;
 
   return (
     <div className="space-y-4">
@@ -530,6 +516,7 @@ export function CompareStatsScreen() {
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-stone-950">
               Estadísticas
             </h1>
+            <p className="mt-2 text-sm leading-snug text-stone-600">{rangeText}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -539,70 +526,63 @@ export function CompareStatsScreen() {
                   promedio mensual
                 </p>
                 <p className="mt-1 text-xl font-semibold tracking-tight text-stone-950">
-                  {rollingAverage.status === "ready"
-                    ? formatCurrency(rollingAverage.average)
-                    : "No disponible"}
-                </p>
-                <p className="text-xs text-stone-600">
-                  {rollingRange ? `últimos 12 meses · ${rollingRange}` : "últimos 12 meses"}
+                  {comparisonReady ? formatCurrency(comparisonReady.average) : "No disponible"}
                 </p>
               </div>
               <div className="border-t border-stone-200/80 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">total del año</p>
-                <p className="mt-1 text-xl font-semibold tracking-tight text-stone-950">
-                  {activeYear.status === "ready" ? formatCurrency(activeYear.total) : "No disponible"}
+                <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                  total acumulado
                 </p>
-                <p className="text-xs text-stone-600">{yearRange}</p>
+                <p className="mt-1 text-xl font-semibold tracking-tight text-stone-950">
+                  {comparisonReady ? formatCurrency(comparisonReady.total) : "No disponible"}
+                </p>
               </div>
             </div>
             <div className="min-w-0 rounded-[1.4rem] bg-stone-100 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">mes pico</p>
               <p className="mt-1 text-sm font-semibold text-stone-950">
-                {peakMonth ? peakMonth.label : "-"}
+                {comparisonReady ? (peakMonth ? formatMonthLabel(peakMonth.monthKey) : "-") : "No disponible"}
               </p>
               <p className="text-xs text-stone-600">
-                {peakMonth ? formatCurrency(peakMonth.total) : ""}
+                {comparisonReady && peakMonth ? formatCurrency(peakMonth.total) : ""}
               </p>
             </div>
             <div className="min-w-0 rounded-[1.4rem] bg-teal-50 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.18em] text-teal-700">más liviano</p>
               <p className="mt-1 text-sm font-semibold text-teal-950">
-                {calmMonth ? calmMonth.label : "-"}
+                {comparisonReady ? (calmMonth ? formatMonthLabel(calmMonth.monthKey) : "-") : "No disponible"}
               </p>
               <p className="text-xs text-teal-700">
-                {calmMonth ? `${formatCurrency(calmMonth.averageExpense)} promedio` : ""}
+                {comparisonReady && calmMonth ? `${formatCurrency(calmMonth.averageExpense)} promedio` : ""}
               </p>
             </div>
             <div className="min-w-0 rounded-[1.4rem] bg-stone-100 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">mayor importe</p>
               <p
                 className="mt-1 truncate text-sm font-semibold text-stone-950"
-                title={
-                  activeYear.status === "ready" && activeYear.topCategory
-                    ? activeYear.topCategory.label
-                    : undefined
-                }
+                title={topCategory?.label}
               >
-                {activeYear.status === "ready"
-                  ? activeYear.topCategory
-                    ? `${activeYear.topCategory.icon} ${activeYear.topCategory.label}`
+                {comparisonReady
+                  ? topCategory
+                    ? `${topCategory.icon} ${topCategory.label}`
                     : "-"
                   : "No disponible"}
               </p>
-              {activeYear.status === "ready" && activeYear.topCategory ? (
-                <p className="text-xs text-stone-600">{formatCurrency(activeYear.topCategory.total)}</p>
+              {comparisonReady && topCategory ? (
+                <p className="text-xs text-stone-600">{formatCurrency(topCategory.total)}</p>
               ) : null}
-              {yearRange ? <p className="text-xs leading-snug text-stone-500">{yearRange}</p> : null}
             </div>
             <div className="min-w-0 rounded-[1.4rem] bg-amber-50 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.18em] text-amber-700">más recurrente</p>
               <p className="mt-1 truncate text-sm font-semibold text-amber-950">
-                {mostRecurringExpense?.displayName ?? "-"}
+                {comparisonReady ? mostRecurringExpense?.displayName ?? "-" : "No disponible"}
               </p>
               <p className="text-xs text-amber-700">
-                {mostRecurringExpense
-                  ? `${mostRecurringExpense.monthCount} meses · ${mostRecurringExpense.transactionCount} veces`
-                  : `sin repetidos en ${RECURRING_WINDOW_MONTHS} meses`}
+                {comparisonReady
+                  ? mostRecurringExpense
+                    ? `${mostRecurringExpense.monthCount} meses · ${mostRecurringExpense.transactionCount} veces`
+                    : `sin repetidos en ${RECURRING_WINDOW_MONTHS} meses`
+                  : ""}
               </p>
             </div>
           </div>
