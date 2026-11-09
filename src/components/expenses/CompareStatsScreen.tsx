@@ -2,6 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  buildActiveYearStats,
+  buildRollingMonthlyAverage,
+  formatMonthSpanLabel,
+  type ActiveYearStats,
+  type RollingMonthlyAverage,
+} from "@/lib/comparison-metrics";
 import { formatExpenseDate, formatMonthLabel, formatShortMonthLabel } from "@/lib/date-helpers";
 import { listMonthKeysInSpan } from "@/lib/month-series";
 import {
@@ -15,6 +22,8 @@ import type { ExpenseListItem, ExpensesDashboardPayload } from "@/types/expense"
 type LoadState = {
   months: MonthStats[];
   activeMonth: string | null;
+  expectedMonthKeys: string[];
+  failedMonthKeys: string[];
   error: string;
   isLoading: boolean;
 };
@@ -101,6 +110,14 @@ function formatDelta(currentTotal: number, previousTotal: number | null) {
   }
 
   return delta > 0 ? `+${formatCurrency(delta)}` : `-${formatCurrency(Math.abs(delta))}`;
+}
+
+function metricRangeLabel(metric: RollingMonthlyAverage | ActiveYearStats) {
+  if (metric.status === "invalid") {
+    return "";
+  }
+
+  return formatMonthSpanLabel(metric.startMonthKey, metric.endMonthKey);
 }
 
 function getDeltaTone(currentTotal: number, previousTotal: number | null) {
@@ -296,6 +313,8 @@ export function CompareStatsScreen() {
   const [state, setState] = useState<LoadState>({
     months: [],
     activeMonth: null,
+    expectedMonthKeys: [],
+    failedMonthKeys: [],
     error: "",
     isLoading: true,
   });
@@ -314,6 +333,8 @@ export function CompareStatsScreen() {
           setState({
             months: [],
             activeMonth: null,
+            expectedMonthKeys: [],
+            failedMonthKeys: [],
             error: initialPayload?.error ?? "No pudimos cargar las estadísticas.",
             isLoading: false,
           });
@@ -321,22 +342,35 @@ export function CompareStatsScreen() {
         return;
       }
 
-      const monthPayloads = await Promise.all(
+      const expectedMonthKeys = initialPayload.availableMonths.map((month) => month.monthKey);
+      const monthResults = await Promise.all(
         initialPayload.availableMonths.map(async (month) => {
           if (month.monthKey === initialPayload.currentMonth) {
-            return initialPayload;
+            return { ok: true as const, payload: initialPayload };
           }
 
-          const response = await fetch(`/api/expenses?mesLiquidacion=${month.monthKey}`, {
-            cache: "no-store",
-          });
-          const payload = await parseJson<ExpensesDashboardPayload & { error?: string }>(response);
+          try {
+            const response = await fetch(`/api/expenses?mesLiquidacion=${month.monthKey}`, {
+              cache: "no-store",
+            });
+            const payload = await parseJson<ExpensesDashboardPayload & { error?: string }>(response);
 
-          if (!response.ok || !payload) {
-            throw new Error(payload?.error ?? "No pudimos cargar un mes histórico.");
+            if (!response.ok || !payload) {
+              return {
+                ok: false as const,
+                monthKey: month.monthKey,
+                error: payload?.error ?? "No pudimos cargar un mes histórico.",
+              };
+            }
+
+            return { ok: true as const, payload };
+          } catch {
+            return {
+              ok: false as const,
+              monthKey: month.monthKey,
+              error: "No pudimos cargar un mes histórico.",
+            };
           }
-
-          return payload;
         })
       );
 
@@ -344,14 +378,30 @@ export function CompareStatsScreen() {
         return;
       }
 
-      const months = monthPayloads
-        .map(buildMonthStats)
+      const failedMonths = monthResults.filter((result) => !result.ok);
+
+      if (failedMonths.length > 0) {
+        setState({
+          months: [],
+          activeMonth: initialPayload.activeMonth,
+          expectedMonthKeys,
+          failedMonthKeys: failedMonths.map((result) => result.monthKey),
+          error: failedMonths[0]?.error ?? "No pudimos cargar las estadísticas.",
+          isLoading: false,
+        });
+        return;
+      }
+
+      const months = monthResults
+        .flatMap((result) => (result.ok ? [buildMonthStats(result.payload)] : []))
         .sort((firstMonth, secondMonth) => secondMonth.monthKey.localeCompare(firstMonth.monthKey));
 
       setSelectedMonth(initialPayload.currentMonth);
       setState({
         months,
         activeMonth: initialPayload.activeMonth,
+        expectedMonthKeys,
+        failedMonthKeys: [],
         error: "",
         isLoading: false,
       });
@@ -365,6 +415,8 @@ export function CompareStatsScreen() {
       setState({
         months: [],
         activeMonth: null,
+        expectedMonthKeys: [],
+        failedMonthKeys: [],
         error: error instanceof Error ? error.message : "No pudimos cargar las estadísticas.",
         isLoading: false,
       });
@@ -379,6 +431,20 @@ export function CompareStatsScreen() {
     () => buildComparisonMonths(state.months, state.activeMonth),
     [state.activeMonth, state.months]
   );
+  const comparisonInput = useMemo(
+    () => ({
+      activeMonth: state.activeMonth,
+      months: state.months,
+      failedMonthKeys: state.failedMonthKeys,
+      expectedMonthKeys: state.expectedMonthKeys,
+    }),
+    [state.activeMonth, state.expectedMonthKeys, state.failedMonthKeys, state.months]
+  );
+  const rollingAverage = useMemo(
+    () => buildRollingMonthlyAverage(comparisonInput),
+    [comparisonInput]
+  );
+  const activeYear = useMemo(() => buildActiveYearStats(comparisonInput), [comparisonInput]);
   const recurringExpenses = useMemo(
     () =>
       state.activeMonth
@@ -450,6 +516,9 @@ export function CompareStatsScreen() {
     );
   }
 
+  const rollingRange = metricRangeLabel(rollingAverage);
+  const yearRange = metricRangeLabel(activeYear);
+
   return (
     <div className="space-y-4">
       <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(28,25,23,0.1)] backdrop-blur">
@@ -464,7 +533,29 @@ export function CompareStatsScreen() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-[1.4rem] bg-stone-100 px-4 py-3">
+            <div className="col-span-2 overflow-hidden rounded-[1.4rem] bg-stone-100">
+              <div className="px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                  promedio mensual
+                </p>
+                <p className="mt-1 text-xl font-semibold tracking-tight text-stone-950">
+                  {rollingAverage.status === "ready"
+                    ? formatCurrency(rollingAverage.average)
+                    : "No disponible"}
+                </p>
+                <p className="text-xs text-stone-600">
+                  {rollingRange ? `últimos 12 meses · ${rollingRange}` : "últimos 12 meses"}
+                </p>
+              </div>
+              <div className="border-t border-stone-200/80 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">total del año</p>
+                <p className="mt-1 text-xl font-semibold tracking-tight text-stone-950">
+                  {activeYear.status === "ready" ? formatCurrency(activeYear.total) : "No disponible"}
+                </p>
+                <p className="text-xs text-stone-600">{yearRange}</p>
+              </div>
+            </div>
+            <div className="min-w-0 rounded-[1.4rem] bg-stone-100 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">mes pico</p>
               <p className="mt-1 text-sm font-semibold text-stone-950">
                 {peakMonth ? peakMonth.label : "-"}
@@ -473,7 +564,7 @@ export function CompareStatsScreen() {
                 {peakMonth ? formatCurrency(peakMonth.total) : ""}
               </p>
             </div>
-            <div className="rounded-[1.4rem] bg-teal-50 px-4 py-3">
+            <div className="min-w-0 rounded-[1.4rem] bg-teal-50 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.18em] text-teal-700">más liviano</p>
               <p className="mt-1 text-sm font-semibold text-teal-950">
                 {calmMonth ? calmMonth.label : "-"}
@@ -482,7 +573,28 @@ export function CompareStatsScreen() {
                 {calmMonth ? `${formatCurrency(calmMonth.averageExpense)} promedio` : ""}
               </p>
             </div>
-            <div className="rounded-[1.4rem] bg-amber-50 px-4 py-3">
+            <div className="min-w-0 rounded-[1.4rem] bg-stone-100 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">mayor importe</p>
+              <p
+                className="mt-1 truncate text-sm font-semibold text-stone-950"
+                title={
+                  activeYear.status === "ready" && activeYear.topCategory
+                    ? activeYear.topCategory.label
+                    : undefined
+                }
+              >
+                {activeYear.status === "ready"
+                  ? activeYear.topCategory
+                    ? `${activeYear.topCategory.icon} ${activeYear.topCategory.label}`
+                    : "-"
+                  : "No disponible"}
+              </p>
+              {activeYear.status === "ready" && activeYear.topCategory ? (
+                <p className="text-xs text-stone-600">{formatCurrency(activeYear.topCategory.total)}</p>
+              ) : null}
+              {yearRange ? <p className="text-xs leading-snug text-stone-500">{yearRange}</p> : null}
+            </div>
+            <div className="min-w-0 rounded-[1.4rem] bg-amber-50 px-4 py-3">
               <p className="text-[11px] uppercase tracking-[0.18em] text-amber-700">más recurrente</p>
               <p className="mt-1 truncate text-sm font-semibold text-amber-950">
                 {mostRecurringExpense?.displayName ?? "-"}
