@@ -2,12 +2,27 @@
 
 import { useEffect, useState, useTransition } from "react";
 
-import { withUpdatedDashboardSummary } from "@/lib/dashboard-summary";
-import { formatMonthLabel } from "@/lib/date-helpers";
-import { sliceOneBasedPage } from "@/lib/list-pagination";
+import { MonthStartSuggestions } from "@/components/expenses/MonthStartSuggestions";
 import { ExpenseList } from "@/components/expenses/ExpenseList";
-import { QuickExpenseForm } from "@/components/expenses/QuickExpenseForm";
-import type { ExpenseCategoryValue } from "@/lib/expense-categories";
+import {
+  QuickExpenseForm,
+  type ExpenseFormPrefill,
+} from "@/components/expenses/QuickExpenseForm";
+import { withUpdatedDashboardSummary } from "@/lib/dashboard-summary";
+import { formatMonthLabel, getTodayInputValue } from "@/lib/date-helpers";
+import { isExpenseCategoryValue, type ExpenseCategoryValue } from "@/lib/expense-categories";
+import {
+  addDaysToDateKey,
+  emptyMonthStartReminderMemory,
+  monthStartReminderStorageKey,
+  parseMonthStartReminderMemory,
+  selectVisibleMonthStartSuggestions,
+  SUGGESTION_SNOOZE_DAYS,
+  type ExpenseSuggestionsResponse,
+  type ExpenseTemplate,
+  type MonthStartReminderMemory,
+} from "@/lib/expense-suggestions";
+import { sliceOneBasedPage } from "@/lib/list-pagination";
 import type {
   ExpenseListItem,
   ExpensesDashboardPayload,
@@ -38,13 +53,37 @@ export function DashboardScreen() {
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [isEditingId, setIsEditingId] = useState<string | null>(null);
   const [pendingDeleteExpenseId, setPendingDeleteExpenseId] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<ExpenseSuggestionsResponse | null>(null);
+  const [reminderMemory, setReminderMemory] = useState<MonthStartReminderMemory | null>(null);
+  const [loadedReminderKey, setLoadedReminderKey] = useState<string | null>(null);
+  const [prefill, setPrefill] = useState<ExpenseFormPrefill | null>(null);
+  const reminderStorageKey = state.payload
+    ? monthStartReminderStorageKey(
+        state.payload.household._id,
+        state.payload.currentUserId,
+        state.payload.activeMonth
+      )
+    : null;
+
+  if (reminderStorageKey !== loadedReminderKey) {
+    setLoadedReminderKey(reminderStorageKey);
+    setReminderMemory(
+      reminderStorageKey && typeof window !== "undefined"
+        ? parseMonthStartReminderMemory(window.localStorage.getItem(reminderStorageKey))
+        : null
+    );
+  }
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadExpenses() {
-      const response = await fetch("/api/expenses", { cache: "no-store" });
+      const [response, suggestionsResponse] = await Promise.all([
+        fetch("/api/expenses", { cache: "no-store" }),
+        fetch("/api/expense-suggestions", { cache: "no-store" }),
+      ]);
       const data = await parseJson<ExpensesDashboardPayload & { error?: string }>(response);
+      const suggestionData = await parseJson<ExpenseSuggestionsResponse>(suggestionsResponse);
 
       if (!isMounted) {
         return;
@@ -60,6 +99,10 @@ export function DashboardScreen() {
       }
 
       setState({ payload: data, error: "", isLoading: false });
+
+      if (suggestionsResponse.ok && suggestionData?.activeMonth) {
+        setSuggestions(suggestionData);
+      }
     }
 
     void loadExpenses();
@@ -267,7 +310,86 @@ export function DashboardScreen() {
     );
   }
 
-  const expensePage = sliceOneBasedPage(state.payload.expenses, currentPage);
+  const payload = state.payload;
+  const expensePage = sliceOneBasedPage(payload.expenses, currentPage);
+  const canSuggest = payload.monthState.isCurrent && !payload.monthState.isFinalized;
+  const enabledCategories = new Set(payload.household.categoriasHabilitadas);
+  const suggestionCatalog =
+    canSuggest && suggestions?.activeMonth === payload.activeMonth
+      ? {
+          monthStart: suggestions.monthStart.filter((template) =>
+            isExpenseCategoryValue(template.categoria) && enabledCategories.has(template.categoria)
+          ),
+          frequent: suggestions.frequent.filter((template) =>
+            isExpenseCategoryValue(template.categoria) && enabledCategories.has(template.categoria)
+          ),
+          autocomplete: suggestions.autocomplete.filter((template) =>
+            isExpenseCategoryValue(template.categoria) && enabledCategories.has(template.categoria)
+          ),
+        }
+      : {
+          monthStart: [],
+          frequent: [],
+          autocomplete: [],
+        };
+  const visibleMonthStart = reminderMemory
+    ? selectVisibleMonthStartSuggestions({
+        suggestions: suggestionCatalog.monthStart,
+        activeMonthExpenses: payload.expenses,
+        dismissedNames: reminderMemory.dismissedNames,
+        snoozeUntil: reminderMemory.snoozeUntil,
+        today: getTodayInputValue(),
+      })
+    : [];
+
+  function rememberMonthStartChoice(nextMemory: MonthStartReminderMemory) {
+    setReminderMemory(nextMemory);
+
+    try {
+      window.localStorage.setItem(
+        monthStartReminderStorageKey(
+          payload.household._id,
+          payload.currentUserId,
+          payload.activeMonth
+        ),
+        JSON.stringify(nextMemory)
+      );
+    } catch {
+      // La elección queda en memoria para esta visita.
+    }
+  }
+
+  function handleUseMonthStart(template: ExpenseTemplate) {
+    setPrefill((currentPrefill) => ({
+      id: (currentPrefill?.id ?? 0) + 1,
+      template,
+      rememberAmount: true,
+    }));
+  }
+
+  function handleDismissMonthStart(template: ExpenseTemplate) {
+    const currentMemory = reminderMemory ?? emptyMonthStartReminderMemory();
+
+    rememberMonthStartChoice({
+      ...currentMemory,
+      dismissedNames: currentMemory.dismissedNames.includes(template.normalizedName)
+        ? currentMemory.dismissedNames
+        : [...currentMemory.dismissedNames, template.normalizedName],
+    });
+  }
+
+  function handleSnoozeMonthStart() {
+    const snoozeUntil = addDaysToDateKey(getTodayInputValue(), SUGGESTION_SNOOZE_DAYS);
+
+    if (!snoozeUntil) {
+      return;
+    }
+
+    rememberMonthStartChoice({
+      ...(reminderMemory ?? emptyMonthStartReminderMemory()),
+      snoozeUntil,
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -317,11 +439,23 @@ export function DashboardScreen() {
             <p className="text-xs leading-5 text-teal-800">{inviteFeedback}</p>
           ) : null}
 
+          {visibleMonthStart.length > 0 ? (
+            <MonthStartSuggestions
+              suggestions={visibleMonthStart}
+              onUse={handleUseMonthStart}
+              onDismiss={handleDismissMonthStart}
+              onSnooze={handleSnoozeMonthStart}
+            />
+          ) : null}
+
           <QuickExpenseForm
             users={state.payload.users}
             currentUserId={state.payload.currentUserId}
             monthKey={state.payload.currentMonth}
             availableCategories={state.payload.household.categoriasHabilitadas}
+            frequentTemplates={suggestionCatalog.frequent}
+            autocompleteTemplates={suggestionCatalog.autocomplete}
+            prefill={prefill}
             onCreateExpense={handleCreateExpense}
             isSubmitting={isSubmitting}
           />

@@ -1,10 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatMonthLabel, getDefaultInputValueForMonth } from "@/lib/date-helpers";
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 import type { ExpenseCategoryValue } from "@/lib/expense-categories";
+import {
+  matchExpenseTemplates,
+  type ExpenseTemplate,
+} from "@/lib/expense-suggestions";
+import { normalizeExpenseDescription } from "@/lib/recurring-expenses";
+import { formatCurrency } from "@/lib/utils";
 import type { HouseholdUserOption } from "@/types/expense";
 
 function getMonthDateBounds(monthKey: string) {
@@ -17,11 +23,24 @@ function getMonthDateBounds(monthKey: string) {
   };
 }
 
+function categoryPresentation(value: string) {
+  return EXPENSE_CATEGORIES.find((category) => category.value === value) ?? null;
+}
+
+export type ExpenseFormPrefill = {
+  id: number;
+  template: ExpenseTemplate;
+  rememberAmount: boolean;
+};
+
 type QuickExpenseFormProps = {
   users: HouseholdUserOption[];
   currentUserId: string;
   monthKey: string;
   availableCategories: ExpenseCategoryValue[];
+  frequentTemplates?: ExpenseTemplate[];
+  autocompleteTemplates?: ExpenseTemplate[];
+  prefill?: ExpenseFormPrefill | null;
   onCreateExpense: (payload: {
     descripcion: string;
     monto: number;
@@ -37,6 +56,9 @@ export function QuickExpenseForm({
   currentUserId,
   monthKey,
   availableCategories,
+  frequentTemplates = [],
+  autocompleteTemplates = [],
+  prefill = null,
   onCreateExpense,
   isSubmitting,
 }: QuickExpenseFormProps) {
@@ -55,6 +77,12 @@ export function QuickExpenseForm({
   const [categoria, setCategoria] = useState<string>(categoryOptions[0]?.value ?? "");
   const [fecha, setFecha] = useState(getDefaultInputValueForMonth(monthKey));
   const [pagadoPor, setPagadoPor] = useState(defaultPayerId);
+  const [amountReference, setAmountReference] = useState<number | null>(null);
+  const [nameQueryOpen, setNameQueryOpen] = useState(false);
+  const [appliedPrefillId, setAppliedPrefillId] = useState<number | null>(null);
+  const [focusToken, setFocusToken] = useState(0);
+  const descriptionFieldRef = useRef<HTMLDivElement>(null);
+  const montoRef = useRef<HTMLInputElement>(null);
   const dateBounds = useMemo(() => getMonthDateBounds(monthKey), [monthKey]);
   const safeCategoria = categoryOptions.some((option) => option.value === categoria)
     ? categoria
@@ -63,6 +91,68 @@ export function QuickExpenseForm({
     fecha >= dateBounds.min && fecha <= dateBounds.max
       ? fecha
       : getDefaultInputValueForMonth(monthKey);
+  const nameMatches = useMemo(
+    () => matchExpenseTemplates(autocompleteTemplates, descripcion),
+    [autocompleteTemplates, descripcion]
+  );
+  const normalizedDescription = normalizeExpenseDescription(descripcion);
+  const visibleNameMatches =
+    nameMatches.length === 1 && nameMatches[0]?.normalizedName === normalizedDescription
+      ? []
+      : nameMatches;
+  const isNameListOpen = nameQueryOpen && visibleNameMatches.length > 0;
+
+  function applyTemplate(template: ExpenseTemplate, rememberAmount: boolean) {
+    setDescripcion(template.displayName);
+
+    if (categoryOptions.some((option) => option.value === template.categoria)) {
+      setCategoria(template.categoria);
+    }
+
+    if (users.some((user) => user._id === template.pagadoPor)) {
+      setPagadoPor(template.pagadoPor);
+    }
+
+    setMonto("");
+    setAmountReference(rememberAmount ? template.lastAmount : null);
+    setNameQueryOpen(false);
+    setFocusToken((currentToken) => currentToken + 1);
+  }
+
+  if ((prefill?.id ?? null) !== appliedPrefillId) {
+    setAppliedPrefillId(prefill?.id ?? null);
+
+    if (prefill) {
+      applyTemplate(prefill.template, prefill.rememberAmount);
+    }
+  }
+
+  useEffect(() => {
+    if (focusToken === 0) {
+      return;
+    }
+
+    montoRef.current?.focus();
+    montoRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focusToken]);
+
+  useEffect(() => {
+    if (!isNameListOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!descriptionFieldRef.current?.contains(event.target as Node)) {
+        setNameQueryOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isNameListOpen]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -80,6 +170,8 @@ export function QuickExpenseForm({
     setCategoria(categoryOptions[0]?.value ?? "");
     setFecha(getDefaultInputValueForMonth(monthKey));
     setPagadoPor(defaultPayerId);
+    setAmountReference(null);
+    setNameQueryOpen(false);
   }
 
   return (
@@ -88,17 +180,105 @@ export function QuickExpenseForm({
         <label htmlFor="descripcion" className="text-sm font-medium text-stone-700">
           Descripción
         </label>
-        <input
-          id="descripcion"
-          value={descripcion}
-          onChange={(event) => setDescripcion(event.target.value)}
-          placeholder="Ej: súper, farmacia, nafta"
-          className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
-          disabled={isSubmitting}
-          required
-          minLength={2}
-          maxLength={200}
-        />
+        {frequentTemplates.length > 0 ? (
+          <div className="space-y-1.5">
+            <p className="text-xs text-stone-500">Frecuentes</p>
+            <div className="flex flex-wrap gap-2">
+              {frequentTemplates.map((template) => {
+                const category = categoryPresentation(template.categoria);
+
+                return (
+                  <button
+                    key={`${template.normalizedName}:${template.categoria}`}
+                    type="button"
+                    onClick={() => applyTemplate(template, false)}
+                    disabled={isSubmitting}
+                    aria-label={`Precargar ${template.displayName}`}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-800 transition hover:border-teal-300 hover:text-teal-900 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {category ? <span aria-hidden="true">{category.icon}</span> : null}
+                    {template.displayName}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+        <div ref={descriptionFieldRef} className="relative">
+          <input
+            id="descripcion"
+            value={descripcion}
+            onChange={(event) => {
+              setDescripcion(event.target.value);
+              setAmountReference(null);
+              setNameQueryOpen(true);
+            }}
+            onFocus={() => {
+              if (descripcion.trim()) {
+                setNameQueryOpen(true);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setNameQueryOpen(false);
+                return;
+              }
+
+              const firstMatch = visibleNameMatches[0];
+
+              if (event.key === "Enter" && isNameListOpen && firstMatch) {
+                event.preventDefault();
+                applyTemplate(firstMatch, false);
+              }
+            }}
+            placeholder="Ej: súper, farmacia, nafta"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={isNameListOpen}
+            aria-controls="expense-name-suggestions"
+            className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
+            disabled={isSubmitting}
+            required
+            minLength={2}
+            maxLength={200}
+          />
+          {isNameListOpen ? (
+            <ul
+              id="expense-name-suggestions"
+              role="listbox"
+              className="absolute z-30 mt-2 max-h-60 w-full overflow-y-auto rounded-2xl border border-stone-200 bg-white py-1 shadow-[0_16px_40px_rgba(28,25,23,0.16)]"
+            >
+              {visibleNameMatches.map((match) => {
+                const category = categoryPresentation(match.categoria);
+
+                return (
+                  <li key={`${match.normalizedName}:${match.categoria}`} role="presentation">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      aria-label={`Precargar ${match.displayName}`}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => applyTemplate(match, false)}
+                      className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-stone-50"
+                    >
+                      <span className="min-w-0 truncate text-sm font-medium text-stone-900">
+                        {category ? <span aria-hidden="true">{category.icon} </span> : null}
+                        {match.displayName}
+                      </span>
+                      <span className="shrink-0 text-xs text-stone-500">
+                        {category?.label ?? "Gasto"}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -108,6 +288,7 @@ export function QuickExpenseForm({
           </label>
           <input
             id="monto"
+            ref={montoRef}
             type="number"
             inputMode="decimal"
             min="0"
@@ -115,10 +296,16 @@ export function QuickExpenseForm({
             value={monto}
             onChange={(event) => setMonto(event.target.value)}
             placeholder="0"
+            aria-describedby={amountReference !== null ? "monto-referencia" : undefined}
             className="w-full min-w-0 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-base text-stone-900 outline-none transition focus:border-teal-600 focus:bg-white"
             disabled={isSubmitting}
             required
           />
+          {amountReference !== null ? (
+            <p id="monto-referencia" className="text-xs leading-5 text-stone-500">
+              Último monto: {formatCurrency(amountReference)}. Confirmalo para este mes.
+            </p>
+          ) : null}
         </div>
 
         <div className="min-w-0 space-y-2">
